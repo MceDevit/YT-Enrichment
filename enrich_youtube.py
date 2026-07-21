@@ -13,7 +13,10 @@ Pipeline:
 Safe to run any time: it skips notes already marked `processed: true`
 (idempotent), so a cron/launchd schedule or a hotkey both work.
 
-Requires: yt-dlp  (brew install yt-dlp)  and Python 3.9+ (requests).
+Requires: yt-dlp (brew install yt-dlp) for transcripts, and Python 3.9+ (requests).
+Metadata (title/channel/duration) comes from the YouTube Data API v3 — get a
+free key at https://console.cloud.google.com/apis/credentials and export it
+as YOUTUBE_API_KEY.
 Claude summary is optional — set USE_CLAUDE=True and export ANTHROPIC_API_KEY.
 """
 
@@ -27,10 +30,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-try:
-    import requests
-except ImportError:
-    requests = None  # only needed if USE_CLAUDE is True
+import requests
 
 # ------------------------------------------------------------------ config ----
 VAULT       = Path(
@@ -43,6 +43,8 @@ LANG        = "en,fr"                       # preferred transcript language(s), 
 STATUS_DONE = "reviewed"                    # frontmatter status after enrich
 MOVE_TO_REVIEWED = True                     # False = keep enriched notes in Inbox
 
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")  # required — see module docstring
+
 USE_CLAUDE  = False                         # True to add an AI summary
 # Model names change over time — confirm current strings at
 # https://docs.claude.com/en/docs/about-claude/models
@@ -51,25 +53,54 @@ CLAUDE_MAX_TOKENS = 700
 # -----------------------------------------------------------------------------
 
 YT_RE = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com/watch\?[^\s)]+|youtu\.be/[\w-]+)")
+VIDEO_ID_RE = re.compile(r"(?:youtu\.be/|watch\?v=)([\w-]+)")
+DURATION_RE = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?")
 
 
 def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def parse_iso8601_duration(duration):
+    """'PT1H2M3S' -> seconds. Missing components default to 0."""
+    m = DURATION_RE.fullmatch(duration or "")
+    if not m:
+        return 0
+    h, mi, s = (int(g) if g else 0 for g in m.groups())
+    return h * 3600 + mi * 60 + s
+
+
 def fetch_meta(url):
-    """Title, channel, duration, video id via yt-dlp (no download)."""
-    r = run(["yt-dlp", "-J", "--skip-download", url])
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip().splitlines()[-1] if r.stderr else "yt-dlp failed")
-    d = json.loads(r.stdout)
+    """Title, channel, duration, video id via the YouTube Data API v3."""
+    if not YOUTUBE_API_KEY:
+        raise RuntimeError(
+            "YOUTUBE_API_KEY not set — get a free key at "
+            "https://console.cloud.google.com/apis/credentials and export it"
+        )
+    id_match = VIDEO_ID_RE.search(url)
+    if not id_match:
+        raise RuntimeError(f"couldn't extract a video id from {url}")
+    video_id = id_match.group(1)
+
+    resp = requests.get(
+        "https://www.googleapis.com/youtube/v3/videos",
+        params={"part": "snippet,contentDetails", "id": video_id, "key": YOUTUBE_API_KEY},
+        timeout=20,
+    )
+    resp.raise_for_status()
+    items = resp.json().get("items", [])
+    if not items:
+        raise RuntimeError(f"video not found or private: {video_id}")
+
+    snippet = items[0]["snippet"]
+    duration_s = parse_iso8601_duration(items[0]["contentDetails"]["duration"])
     return {
-        "id": d.get("id", ""),
-        "title": d.get("title", "Untitled"),
-        "channel": d.get("uploader") or d.get("channel", ""),
-        "channel_id": d.get("channel_id") or d.get("uploader_id") or "",
-        "duration": fmt_duration(d.get("duration") or 0),
-        "url": d.get("webpage_url", url),
+        "id": video_id,
+        "title": snippet.get("title", "Untitled"),
+        "channel": snippet.get("channelTitle", ""),
+        "channel_id": snippet.get("channelId", ""),
+        "duration": fmt_duration(duration_s),
+        "url": f"https://youtu.be/{video_id}",
     }
 
 

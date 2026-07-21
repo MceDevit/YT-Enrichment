@@ -40,8 +40,16 @@ transcripts and optional Claude-generated summaries.
 ```bash
 brew install yt-dlp
 python3 -m pip install requests --break-system-packages
+export YOUTUBE_API_KEY="..."            # required — get a free key at
+                                         # https://console.cloud.google.com/apis/credentials
 export ANTHROPIC_API_KEY="sk-ant-..."   # only needed if use_claude: yes
 ```
+
+Metadata (title/channel/duration) comes from the YouTube Data API v3, not
+`yt-dlp` — it's cheap (1 quota unit/request, 10,000 free/day) and doesn't hit
+the scraping-related rate limits `yt-dlp` can run into. Transcripts still use
+`yt-dlp`, since YouTube's official API only exposes captions for videos you
+own.
 
 Edit the `VAULT` path near the top of `enrich_youtube.py` to point at your
 vault (see comments in the file for how to find the real path on disk).
