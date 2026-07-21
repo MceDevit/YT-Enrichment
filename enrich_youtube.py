@@ -39,7 +39,7 @@ VAULT       = Path(
 INBOX       = VAULT                          # new note files land directly in the vault root
 REVIEWED    = VAULT / "Reviewed"
 LINKS_FILE  = INBOX / "_links.md"          # optional: one URL per line, only used if present
-LANG        = "en"                          # preferred transcript language
+LANG        = "en,fr"                       # preferred transcript language(s), comma-separated
 STATUS_DONE = "reviewed"                    # frontmatter status after enrich
 MOVE_TO_REVIEWED = True                     # False = keep enriched notes in Inbox
 
@@ -77,7 +77,7 @@ def fetch_transcript(url):
     """Return plain-text transcript, or '' if none. Uses yt-dlp json3 captions."""
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "%(id)s.%(ext)s")
-        run([
+        r = run([
             "yt-dlp", "--skip-download",
             "--write-subs", "--write-auto-subs",
             "--sub-langs", LANG, "--sub-format", "json3",
@@ -85,6 +85,8 @@ def fetch_transcript(url):
         ])
         files = [f for f in Path(tmp).iterdir() if f.suffix == ".json3"]
         if not files:
+            if r.returncode != 0 and r.stderr.strip():
+                print(f"  ! transcript fetch failed: {r.stderr.strip().splitlines()[-1]}", file=sys.stderr)
             return ""
         data = json.loads(files[0].read_text(encoding="utf-8"))
         parts = []
