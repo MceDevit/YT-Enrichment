@@ -1,4 +1,5 @@
 use_claude: yes
+max_transcript_minutes: 60
 
 ## Default
 focus: General summary — technical takeaways, actionable steps I could apply, any resources/tools mentioned by name, and a final verdict on whether it's worth watching in full.

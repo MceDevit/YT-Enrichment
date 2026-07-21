@@ -7,8 +7,9 @@ Pipeline:
      as a line in `_links.md`, or inside any .md note (frontmatter `url:` or a
      bare link in the body). This script doesn't care how it got there.
   2. This script reads each unprocessed URL, fetches metadata + transcript with
-     yt-dlp, writes your frontmatter, optionally adds a Claude summary, marks it
-     `processed: true`, and moves the finished note to Reviewed.
+     yt-dlp, writes your frontmatter, optionally cleans the transcript and adds
+     a Claude summary, marks it `processed: true`, and moves the finished note
+     to Reviewed.
 
 Safe to run any time: it skips notes already marked `processed: true`
 (idempotent), so a cron/launchd schedule or a hotkey both work.
@@ -32,6 +33,8 @@ from pathlib import Path
 
 import requests
 
+from reformat_transcript import reformat_transcript
+
 # ------------------------------------------------------------------ config ----
 VAULT       = Path(
     "~/Library/Mobile Documents/iCloud~md~obsidian/Documents/MyVault"
@@ -40,6 +43,7 @@ INBOX       = VAULT                          # new note files land directly in t
 REVIEWED    = VAULT / "Reviewed"
 LINKS_FILE  = INBOX / "_links.md"          # optional: one URL per line, only used if present
 LANG        = "en,fr"                       # preferred transcript language(s), comma-separated
+MAX_TRANSCRIPT_SECONDS = 3600                # skip transcript fetch for videos longer than this (movies, etc.)
 STATUS_DONE = "reviewed"                    # frontmatter status after enrich
 MOVE_TO_REVIEWED = True                     # False = keep enriched notes in Inbox
 
@@ -100,6 +104,7 @@ def fetch_meta(url):
         "channel": snippet.get("channelTitle", ""),
         "channel_id": snippet.get("channelId", ""),
         "duration": fmt_duration(duration_s),
+        "duration_seconds": duration_s,
         "url": f"https://youtu.be/{video_id}",
     }
 
@@ -187,7 +192,7 @@ def sanitize(name):
     return re.sub(r"\s+", " ", name).strip()[:120] or "video"
 
 
-def build_note(meta, transcript, summary):
+def build_note(meta, transcript, summary, transcript_note=None):
     fm = [
         "---",
         f'title: "{meta["title"].replace(chr(34), chr(39))}"',
@@ -205,7 +210,7 @@ def build_note(meta, transcript, summary):
     if summary:
         fm += ["## Summary", "", summary, ""]
     fm += ["## My notes", "- ", ""]
-    fm += ["## Transcript", "", transcript or "_No transcript available._", ""]
+    fm += ["## Transcript", "", transcript or transcript_note or "_No transcript available._", ""]
     return "\n".join(fm)
 
 
@@ -260,10 +265,19 @@ def main(focus_getter=None):
         print(f"• {url}")
         try:
             meta = fetch_meta(url)
-            transcript = fetch_transcript(url)
+            transcript_note = None
+            if meta["duration_seconds"] > MAX_TRANSCRIPT_SECONDS:
+                print(f"  (skipping transcript — {meta['duration']} exceeds "
+                      f"{MAX_TRANSCRIPT_SECONDS // 60}min limit)")
+                transcript = ""
+                transcript_note = "_Transcript skipped — video exceeds the length limit._"
+            else:
+                transcript = fetch_transcript(url)
+                if USE_CLAUDE and transcript:
+                    transcript = reformat_transcript(transcript) or transcript
             focus = focus_getter(meta) if focus_getter else None
             summary = claude_summary(meta["title"], transcript, focus=focus)
-            body = build_note(meta, transcript, summary)
+            body = build_note(meta, transcript, summary, transcript_note=transcript_note)
 
             dest_dir = REVIEWED if MOVE_TO_REVIEWED else INBOX
             dest = dest_dir / f"{sanitize(meta['title'])}.md"

@@ -41,9 +41,12 @@ SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 
 
 def parse_settings(text):
-    """Returns (use_claude: bool, sections: list[dict{name, keywords, focus}])."""
+    """Returns (use_claude: bool, max_transcript_minutes: int|None, sections: list[dict{name, keywords, focus}])."""
     use_claude_m = re.search(r"^use_claude:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
     use_claude = bool(use_claude_m and use_claude_m.group(1).lower() in ("yes", "true", "on", "1"))
+
+    max_minutes_m = re.search(r"^max_transcript_minutes:\s*(\d+)", text, re.MULTILINE | re.IGNORECASE)
+    max_transcript_minutes = int(max_minutes_m.group(1)) if max_minutes_m else None
 
     # split into (name, body) per "## Heading" section
     headers = list(SECTION_RE.finditer(text))
@@ -62,7 +65,7 @@ def parse_settings(text):
 
         sections.append({"name": name, "keywords": keywords, "focus": focus})
 
-    return use_claude, sections
+    return use_claude, max_transcript_minutes, sections
 
 
 def make_focus_getter(sections):
@@ -87,11 +90,15 @@ def main():
         return
 
     text = SETTINGS_FILE.read_text(encoding="utf-8")
-    use_claude, sections = parse_settings(text)
+    use_claude, max_transcript_minutes, sections = parse_settings(text)
 
     core.USE_CLAUDE = use_claude
+    if max_transcript_minutes is not None:
+        core.MAX_TRANSCRIPT_SECONDS = max_transcript_minutes * 60
+
     print(f"Settings loaded from {SETTINGS_FILE.name}")
     print(f"Summaries: {'ON' if use_claude else 'OFF'}")
+    print(f"Max transcript length: {core.MAX_TRANSCRIPT_SECONDS // 60} min")
     if use_claude:
         names = ", ".join(s["name"] for s in sections if s["name"].lower() != "default")
         print(f"Topics configured: {names or '(none — Default only)'}\n")

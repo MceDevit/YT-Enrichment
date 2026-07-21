@@ -7,8 +7,12 @@ transcripts and optional Claude-generated summaries.
 ## Files
 
 - **`enrich_youtube.py`** — core engine. Fetches metadata + transcript via
-  `yt-dlp`, writes clean frontmatter, optionally summarizes with Claude,
-  moves finished notes to `Reviewed`. Everything else imports this.
+  `yt-dlp`, writes clean frontmatter, optionally cleans the transcript and
+  summarizes with Claude, moves finished notes to `Reviewed`. Everything
+  else imports this.
+- **`reformat_transcript.py`** — when `use_claude` is on, cleans the raw
+  transcript (removes filler words, adds punctuation/paragraphs) before it's
+  summarized and saved. Falls back to the raw transcript if the call fails.
 - **`enrich_youtube_auto.py`** — the day-to-day entry point. Reads
   `_youtube_settings.md` and runs fully automatically, no prompts.
 - **`_youtube_settings.md`** — config: `use_claude: yes/no` plus topic
@@ -50,6 +54,12 @@ Metadata (title/channel/duration) comes from the YouTube Data API v3, not
 the scraping-related rate limits `yt-dlp` can run into. Transcripts still use
 `yt-dlp`, since YouTube's official API only exposes captions for videos you
 own.
+
+Videos longer than `MAX_TRANSCRIPT_SECONDS` (default: 1 hour, near the top of
+`enrich_youtube.py`) skip the transcript fetch entirely — meant for
+movies/long-form content where a full transcript isn't useful. The note still
+gets full metadata; since there's no transcript, no Claude summary is
+generated for these either (summaries are built from the transcript).
 
 Edit the `VAULT` path near the top of `enrich_youtube.py` to point at your
 vault (see comments in the file for how to find the real path on disk).
