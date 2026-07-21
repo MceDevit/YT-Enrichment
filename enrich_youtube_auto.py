@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""
+enrich_youtube_auto.py — fully automatic run, no questions asked.
+
+Reads a plain-Markdown settings file (default: _youtube_settings.md in your
+vault root) that says whether to use Claude summaries, and picks a per-topic
+"focus" for the summary by matching keywords against the video's title.
+
+Edit the settings file itself (in Obsidian, like any other note) to change
+behavior — no need to touch this script or answer prompts at runtime.
+
+Settings file format:
+
+    use_claude: yes
+
+    ## Default
+    focus: <text used when nothing else matches>
+
+    ## Some Topic
+    keywords: word one, word two, word three
+    focus: <text used when the video title contains any of those keywords>
+
+    ## Another Topic
+    keywords: ...
+    focus: ...
+
+First matching topic section (in file order, top to bottom, excluding
+Default) wins. Default is used if nothing matches.
+"""
+
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import enrich_youtube as core  # reuses VAULT/INBOX/REVIEWED/main()
+
+SETTINGS_FILE = core.VAULT / "_youtube_settings.md"
+
+SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+
+
+def parse_settings(text):
+    """Returns (use_claude: bool, sections: list[dict{name, keywords, focus}])."""
+    use_claude_m = re.search(r"^use_claude:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
+    use_claude = bool(use_claude_m and use_claude_m.group(1).lower() in ("yes", "true", "on", "1"))
+
+    # split into (name, body) per "## Heading" section
+    headers = list(SECTION_RE.finditer(text))
+    sections = []
+    for i, h in enumerate(headers):
+        name = h.group(1).strip()
+        start = h.end()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
+        body = text[start:end]
+
+        kw_m = re.search(r"^keywords:\s*(.+)$", body, re.MULTILINE | re.IGNORECASE)
+        keywords = [k.strip().lower() for k in kw_m.group(1).split(",")] if kw_m else []
+
+        focus_m = re.search(r"^focus:\s*(.+(?:\n(?!\S+:).+)*)", body, re.MULTILINE | re.IGNORECASE)
+        focus = focus_m.group(1).strip() if focus_m else ""
+
+        sections.append({"name": name, "keywords": keywords, "focus": focus})
+
+    return use_claude, sections
+
+
+def make_focus_getter(sections):
+    default_focus = next((s["focus"] for s in sections if s["name"].lower() == "default"), None)
+    topic_sections = [s for s in sections if s["name"].lower() != "default"]
+
+    def get_focus(meta):
+        haystack = (meta.get("title", "") + " " + meta.get("channel", "")).lower()
+        for s in topic_sections:
+            if any(kw and kw in haystack for kw in s["keywords"]):
+                print(f'    (matched topic: {s["name"]})')
+                return s["focus"] or None
+        return default_focus or None
+
+    return get_focus
+
+
+def main():
+    if not SETTINGS_FILE.exists():
+        print(f"No settings file found at:\n  {SETTINGS_FILE}")
+        print("Create it (see _youtube_settings.md example) or run enrich_youtube.py directly.")
+        return
+
+    text = SETTINGS_FILE.read_text(encoding="utf-8")
+    use_claude, sections = parse_settings(text)
+
+    core.USE_CLAUDE = use_claude
+    print(f"Settings loaded from {SETTINGS_FILE.name}")
+    print(f"Summaries: {'ON' if use_claude else 'OFF'}")
+    if use_claude:
+        names = ", ".join(s["name"] for s in sections if s["name"].lower() != "default")
+        print(f"Topics configured: {names or '(none — Default only)'}\n")
+    else:
+        print()
+
+    core.main(focus_getter=make_focus_getter(sections) if use_claude else None)
+
+
+if __name__ == "__main__":
+    main()
