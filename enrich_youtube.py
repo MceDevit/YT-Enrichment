@@ -173,9 +173,12 @@ def claude_summary(title, transcript, focus=None):
         "1. Technical takeaways — tools, techniques, code patterns, or concrete methods shown.\n"
         "2. Actionable steps I could apply myself.\n"
         "3. Any specific links, tools, libraries, or resources mentioned by name.\n\n"
-        "End with one final bullet: a one-line verdict on whether it's worth watching in full, "
+        "End with one final bullet: a one-line verdict on whether it's worth watching in full — "
+        "judged against my stated interest above if I gave one, otherwise judge generally — "
         "and why or why not.\n\n"
         "Keep each bullet tight — one line where possible. No preamble, no restating the title.\n\n"
+        "After the bullets, on its own line, repeat just that verdict prefixed with 'VERDICT: ' "
+        "(e.g. 'VERDICT: Yes — reason' or 'VERDICT: No — reason' or 'VERDICT: Maybe — reason').\n\n"
         "Transcript:\n\n" + transcript[:100_000]
     )
     try:
@@ -201,12 +204,25 @@ def claude_summary(title, transcript, focus=None):
         return ""
 
 
+VERDICT_RE = re.compile(r"^VERDICT:\s*(.+)$", re.MULTILINE | re.IGNORECASE)
+
+
+def extract_verdict(summary):
+    """Pulls the 'VERDICT: ...' line out of a summary. Returns (verdict, summary_without_it)."""
+    m = VERDICT_RE.search(summary or "")
+    if not m:
+        return None, summary
+    verdict = m.group(1).strip()
+    cleaned = VERDICT_RE.sub("", summary).strip()
+    return verdict, cleaned
+
+
 def sanitize(name):
     name = re.sub(r'[\\/:*?"<>|#^\[\]]', "", name)
     return re.sub(r"\s+", " ", name).strip()[:120] or "video"
 
 
-def build_note(meta, transcript, summary, transcript_note=None):
+def build_note(meta, transcript, summary, transcript_note=None, verdict=None):
     fm = [
         "---",
         f'title: "{meta["title"].replace(chr(34), chr(39))}"',
@@ -221,6 +237,8 @@ def build_note(meta, transcript, summary, transcript_note=None):
         "---",
         "",
     ]
+    if verdict:
+        fm += [f"> [!danger] Worth watching? {verdict}", ""]
     if summary:
         fm += ["## Summary", "", summary, ""]
     fm += ["## My notes", "- ", ""]
@@ -291,7 +309,8 @@ def main(focus_getter=None):
                     transcript = reformat_transcript(transcript) or transcript
             focus = focus_getter(meta) if focus_getter else None
             summary = claude_summary(meta["title"], transcript, focus=focus)
-            body = build_note(meta, transcript, summary, transcript_note=transcript_note)
+            verdict, summary = extract_verdict(summary) if summary else (None, summary)
+            body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict)
 
             dest_dir = REVIEWED if MOVE_TO_REVIEWED else INBOX
             dest = dest_dir / f"{sanitize(meta['title'])}.md"
