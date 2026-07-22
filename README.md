@@ -1,108 +1,178 @@
-# YouTube → Obsidian Enrichment Pipeline
+# YT Enrich — YouTube → Obsidian, with a verdict
 
-Captures YouTube videos shared from any device into an Obsidian vault
-(synced via iCloud), then enriches them locally on the Mac with full
-transcripts, cleaned-up prose, and optional Claude-generated summaries with
-a quick "worth watching?" verdict.
+Share a YouTube video from any device into your Obsidian vault. A local
+script then enriches it into a full note: metadata, cleaned-up transcript,
+an AI summary focused on *your* interests — and a one-line answer to the
+question that actually matters:
 
-## The flow, end to end
+> **Is this video worth my time?**
+
+Most YouTube-summary tools give you a generic summary. YT Enrich judges
+each video **against goals you define per topic** (in a plain Markdown
+settings file) and puts the verdict in a red callout at the top of the
+note, so you can triage your watch-later pile at a glance.
+
+Everything runs locally on your Mac, with your own API keys, into your
+own vault. No accounts, no server, no subscription.
+
+## What an enriched note looks like
+
+```markdown
+---
+title: "Anthropic Just Changed How We Build Skills Forever"
+channel: "Brock Mesarich | AI for Non Techies"
+url: https://youtu.be/jbiMx17fEK0
+duration: 9:35
+date_watched: 2026-07-22
+tags: [youtube]
+status: reviewed
+processed: true
+---
+
+> [!danger] Worth watching? Maybe — useful if you actively use the
+> feature being demoed, but the core insight is fully captured in
+> this summary.
+
+## Summary
+- ...focused bullet points, per your topic settings...
+
+## My notes
+-
+
+## Transcript
+...full transcript, cleaned into readable prose...
+```
+
+## Features
+
+- **Capture from anywhere** — phone Share Sheet → Obsidian, a macOS Quick
+  Action for Brave/Safari, or just paste links into `_links.md`.
+- **Per-topic focus** — define topics by keywords in `_youtube_settings.md`;
+  each topic gets its own summary focus ("give me the exact prompts",
+  "flag hype vs. reproducible how-to", "note chord voicings mentioned").
+- **The verdict** — a red `[!danger]` callout at the top of every note:
+  worth watching in full, or is the summary enough?
+- **Transcript cleanup** — raw auto-captions are rewritten into readable
+  paragraphs before summarizing.
+- **Channel watching** — checks channels you've already reviewed for new
+  uploads, either auto-queued or via a local approve/skip webpage.
+- **Length cutoff** — videos over `max_transcript_minutes` (default 60)
+  skip the transcript entirely; you still get metadata.
+- **Works offline from YouTube's UI** — your watch-later lives in your
+  vault as Markdown, searchable and linkable forever.
+
+## The flow
 
 ```
 1. CAPTURE (any device)
-   Phone: Share sheet → Obsidian → new note with just the URL
-   Mac:   press the "YTEnrich" shortcut in Brave/Safari → same thing
-   Anywhere: paste a link as a line in _links.md, or into any .md note
+   Phone: Share Sheet → Obsidian → new note with just the URL
+   Mac:   keyboard shortcut in Brave/Safari (Quick Action, see below)
+   Anywhere: paste a link into _links.md or any .md note
+        │
+        ▼   (iCloud/your sync brings it to the Mac)
+2. Run "Run Enrich.command"
+     · metadata via the YouTube Data API v3
+     · transcript via yt-dlp (skipped over the length limit)
+     · Claude cleans the transcript, summarizes with your topic's
+       focus, and issues the verdict
+     · finished note moves to Reviewed/, the stub is deleted
         │
         ▼
-2. Note lands in the vault root (iCloud syncs it to the Mac automatically)
-        │
-        ▼
-3. Run "Run Enrich.command" (or python3 enrich_youtube_auto.py)
-     - fetches title/channel/duration via the YouTube Data API v3
-     - skips the transcript for anything over MAX_TRANSCRIPT_SECONDS
-       (movies, long lectures — default 1 hour)
-     - otherwise fetches the transcript via yt-dlp (English + French)
-     - if use_claude: yes → cleans the transcript's grammar/paragraphs,
-       summarizes it with a per-topic focus, and adds a red verdict
-       callout ("Worth watching?") at the top of the note
-     - writes the final note into Reviewed/, deletes the stub
-        │
-        ▼
-4. Optional: "Run Watch Channels.command" / "Run Review Videos.command"
-   check channels you've already reviewed for new uploads and feed them
-   back into step 3 automatically (or via a one-click approve/skip page)
+3. Optional: "Run Watch Channels.command" / "Run Review Videos.command"
+   surface new uploads from channels you've already reviewed
 ```
 
-## Which command does what
+## Commands
 
-| Command | What it does | When to run it |
-|---|---|---|
-| **`Run Enrich.command`** | Processes every unprocessed link sitting in the vault root: metadata, transcript, cleanup, summary, verdict, moves to `Reviewed/`. This is the one you actually run day-to-day. | Any time you've captured new videos and want them enriched. |
-| **`Run Watch Channels.command`** | Checks the RSS feed of every channel behind your `Reviewed/` notes for new uploads. New ones get dropped into the vault root as bare-link stubs (so `Run Enrich.command` picks them up next). First run per channel just sets a baseline — it won't flood you with their whole back-catalog. | Whenever you want to catch new videos from channels you already trust, without deciding for yourself. |
-| **`Run Review Videos.command`** | Same channel-scanning as above, but instead of auto-adding, it opens a local webpage (`127.0.0.1:8743`) showing new videos with thumbnails so you click **Add to Inbox** or **Skip** per video. Skipped ones never resurface. | When you want to filter new uploads yourself instead of auto-adding everything. |
+| Command | What it does |
+|---|---|
+| **`Run Enrich.command`** | The day-to-day one. Processes every captured link: metadata, transcript, summary, verdict, moves to `Reviewed/`. |
+| **`Run Watch Channels.command`** | Auto-queues new uploads from every channel behind your `Reviewed/` notes (first run per channel only sets a baseline). |
+| **`Run Review Videos.command`** | Same scan, but opens a local page (`127.0.0.1:8743`) with thumbnails and per-video **Add** / **Skip** buttons. |
 
-Double-click any of these in Finder — they open Terminal, run the script, and pause at the end so you can read the output.
-
-## Files (what's actually doing the work)
-
-- **`enrich_youtube.py`** — core engine. Everything else imports this; it has no command of its own.
-- **`enrich_youtube_auto.py`** — reads `_youtube_settings.md` and runs `enrich_youtube.py`'s pipeline with no prompts. This is what `Run Enrich.command` actually calls.
-- **`_youtube_settings.md`** *(lives in the vault, not this repo)* — `use_claude: yes/no`, `max_transcript_minutes: 60`, plus topic sections (keywords → a custom summary focus per topic, used to judge the verdict). Edit this in Obsidian — no code changes needed.
-- **`reformat_transcript.py`** — cleans the raw transcript (filler words, punctuation, paragraphs) before it's summarized, when `use_claude` is on. Falls back to the raw transcript if the call fails.
-- **`watch_channels.py`** — the engine behind `Run Watch Channels.command`.
-- **`review_videos.py`** — the engine behind `Run Review Videos.command`.
-- **`vault_path.txt`** *(gitignored, machine-specific)* — one line, your vault's full path. Copy `vault_path.txt.example` to create your own.
-- **`enrich_youtube_interactive.py`** *(optional, superseded by `_youtube_settings.md`)* — older version that asks per-run/per-video questions instead of reading a config file.
-
-## Capturing from Brave/Safari on the Mac (the "YTEnrich" shortcut)
-
-Mobile Brave shares a URL straight into a new Obsidian note via the Share
-Sheet. There's no equivalent browser plugin on Mac, so instead there's a
-macOS Quick Action that does the same thing:
-
-- Installed at `~/Library/Services/YTEnrich.workflow` (Automator, not part of
-  this repo — it's OS-level config, so it isn't synced/shared automatically).
-- Grabs the frontmost browser tab's URL via AppleScript and writes it as a
-  bare-link stub note into the vault root — same shape as the mobile share.
-- Triggered via a keyboard shortcut set in **System Settings → Keyboard →
-  Keyboard Shortcuts → Services → General → "YTEnrich"**.
-- If you set this up on another Mac, you'll need to rebuild the Quick Action
-  there too (Automator → New → Quick Action → "no input, any application" →
-  Run Shell Script targeting Brave or Safari's AppleScript dictionary).
+Double-click in Finder; they open Terminal and pause at the end so you
+can read the output.
 
 ## Setup
 
+**Requirements:** macOS, Python 3, [Obsidian](https://obsidian.md) with a
+synced vault, a free [YouTube Data API v3 key](https://console.cloud.google.com/apis/credentials),
+and (for summaries/verdicts) an [Anthropic API key](https://console.anthropic.com/).
+
 ```bash
+git clone https://github.com/MceDevit/YT-Enrichment.git
+cd YT-Enrichment
 brew install yt-dlp
 python3 -m pip install requests --break-system-packages
-cp vault_path.txt.example vault_path.txt   # then edit it — one line, your vault's full path
-export YOUTUBE_API_KEY="..."            # required — get a free key at
-                                         # https://console.cloud.google.com/apis/credentials
-export ANTHROPIC_API_KEY="sk-ant-..."   # only needed if use_claude: yes
+
+# point the scripts at your vault (gitignored, machine-specific)
+cp vault_path.txt.example vault_path.txt   # then edit: one line, your vault's full path
+
+# API keys — add to ~/.zshrc
+export YOUTUBE_API_KEY="..."             # Google Cloud Console → enable "YouTube Data API v3" → create key
+export ANTHROPIC_API_KEY="sk-ant-..."    # only needed if use_claude: yes
 ```
 
-`vault_path.txt` is gitignored — it's specific to your machine, so each
-person running this (e.g. if you hand the repo to someone else) makes their
-own copy from the `.example` file and points it at their own vault.
+Then copy `_youtube_settings.md` from this repo **into your vault root**
+and edit it in Obsidian — that copy is the live config:
 
-## Notes on how the pieces work
+```markdown
+use_claude: yes
+max_transcript_minutes: 60
 
-**Metadata** (title/channel/duration) comes from the YouTube Data API v3, not
-`yt-dlp` — it's cheap (1 quota unit/request, 10,000 free/day) and doesn't hit
-the scraping-related rate limits `yt-dlp` can run into. **Transcripts** still
-use `yt-dlp` (English + French auto-captions), since YouTube's official API
-only exposes captions for videos you own — there's no free, official way
-around occasional `yt-dlp` rate-limit errors on this part. When that happens
-you'll see `! transcript fetch failed: ...` in the output instead of a silent
-empty transcript.
+## Default
+focus: General summary — actionable takeaways, resources mentioned,
+and whether it's worth watching in full.
 
-**Long videos**: anything over `max_transcript_minutes` (configurable in
-`_youtube_settings.md`, default 60) skips the transcript fetch entirely —
-meant for movies/long-form content where a full transcript isn't useful. No
-transcript means no summary either (summaries are built from it), but the
-note still gets full metadata.
+## My Topic
+keywords: keyword1, keyword2, ...
+focus: What you want the summary (and verdict) to prioritize for
+videos matching these keywords.
+```
 
-**The verdict callout**: when a summary is generated, Claude also judges
-whether the video is worth watching against the matched topic's stated
-focus, and that judgement gets pulled out into a red `[!danger]` callout at
-the very top of the note — a one-glance answer before you read anything else.
+Capture on mobile needs nothing extra — Obsidian's Share Sheet target
+creates the stub note. On the Mac, build a small Automator Quick Action
+(New → Quick Action → *no input, any application* → Run Shell Script)
+that grabs the front tab's URL via AppleScript and writes it into the
+vault root, then bind it to a keyboard shortcut under **System Settings →
+Keyboard Shortcuts → Services**. Example script for Brave:
+
+```bash
+VAULT="$HOME/path/to/your/vault"
+URL=$(osascript -e 'tell application "Brave Browser" to get URL of active tab of front window')
+echo "$URL" > "$VAULT/YouTube Share $(date +%Y%m%d-%H%M%S).md"
+```
+
+## Costs
+
+- **YouTube metadata**: free — 1 quota unit per video against a 10,000/day
+  free quota.
+- **Claude summaries**: pay-as-you-go on your own Anthropic API account;
+  typically a few cents per video, so light use runs $1–3/month. Set
+  `use_claude: no` to skip summaries entirely (metadata + transcript
+  still work, and cost nothing).
+
+## Known limitations (honest ones)
+
+- **Transcript fetching uses yt-dlp**, which scrapes YouTube's internal
+  caption endpoint. That endpoint rate-limits aggressively (HTTP 429) —
+  the script retries with backoff and tells you when it happens, but
+  sometimes a transcript just won't come through until later. There is
+  no official free API for other people's captions; this is the
+  trade-off the whole category lives with.
+- **Reprocessing a note** means moving it out of `Reviewed/` back to the
+  vault root and deleting the `processed: true` frontmatter line — the
+  script only scans the vault root.
+- **macOS-centric** — the Python scripts are portable, but the launchers
+  and capture Quick Action are Mac-only.
+- The `_youtube_settings.md` in this repo is a **template**; the copy in
+  your vault is what's actually read at runtime.
+
+## Files
+
+- `enrich_youtube.py` — core engine (imported by everything else)
+- `enrich_youtube_auto.py` — reads `_youtube_settings.md`, runs the pipeline with no prompts (what `Run Enrich.command` calls)
+- `reformat_transcript.py` — transcript → readable prose (when `use_claude: yes`)
+- `watch_channels.py` / `review_videos.py` — channel watching engines
+- `_youtube_settings.md` — settings **template** (live copy goes in your vault)
+- `vault_path.txt.example` — copy to `vault_path.txt`, point at your vault
