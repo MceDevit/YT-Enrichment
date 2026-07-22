@@ -36,9 +36,23 @@ import requests
 from reformat_transcript import reformat_transcript
 
 # ------------------------------------------------------------------ config ----
-VAULT       = Path(
-    "~/Library/Mobile Documents/iCloud~md~obsidian/Documents/MyVault"
-).expanduser()  # <-- your iCloud vault root (Obsidian's own iCloud container)
+VAULT_PATH_FILE = Path(__file__).resolve().parent / "vault_path.txt"
+
+
+def _load_vault():
+    if not VAULT_PATH_FILE.exists():
+        raise RuntimeError(
+            f"No vault configured — create {VAULT_PATH_FILE.name} next to this script "
+            "with your vault's full path on one line, e.g.:\n"
+            "  ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/MyVault"
+        )
+    raw = VAULT_PATH_FILE.read_text(encoding="utf-8").strip()
+    if not raw:
+        raise RuntimeError(f"{VAULT_PATH_FILE.name} is empty — put your vault's path in it")
+    return Path(raw).expanduser()
+
+
+VAULT       = _load_vault()                  # <-- your vault root, configured in vault_path.txt
 INBOX       = VAULT                          # new note files land directly in the vault root
 REVIEWED    = VAULT / "Reviewed"
 LINKS_FILE  = INBOX / "_links.md"          # optional: one URL per line, only used if present

@@ -44,10 +44,15 @@ transcripts and optional Claude-generated summaries.
 ```bash
 brew install yt-dlp
 python3 -m pip install requests --break-system-packages
+cp vault_path.txt.example vault_path.txt   # then edit it — one line, your vault's full path
 export YOUTUBE_API_KEY="..."            # required — get a free key at
                                          # https://console.cloud.google.com/apis/credentials
 export ANTHROPIC_API_KEY="sk-ant-..."   # only needed if use_claude: yes
 ```
+
+`vault_path.txt` is gitignored — it's specific to your machine, so each person
+running this (e.g. if you hand the repo to someone else) makes their own copy
+from the `.example` file and points it at their own vault.
 
 Metadata (title/channel/duration) comes from the YouTube Data API v3, not
 `yt-dlp` — it's cheap (1 quota unit/request, 10,000 free/day) and doesn't hit
@@ -61,5 +66,3 @@ movies/long-form content where a full transcript isn't useful. The note still
 gets full metadata; since there's no transcript, no Claude summary is
 generated for these either (summaries are built from the transcript).
 
-Edit the `VAULT` path near the top of `enrich_youtube.py` to point at your
-vault (see comments in the file for how to find the real path on disk).
