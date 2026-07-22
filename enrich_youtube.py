@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import date
 from pathlib import Path
 
@@ -70,8 +71,8 @@ CLAUDE_MODEL = "claude-sonnet-5"
 CLAUDE_MAX_TOKENS = 700
 # -----------------------------------------------------------------------------
 
-YT_RE = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com/watch\?[^\s)]+|youtu\.be/[\w-]+)")
-VIDEO_ID_RE = re.compile(r"(?:youtu\.be/|watch\?v=)([\w-]+)")
+YT_RE = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?[^\s)]+|shorts/[\w-]+)|youtu\.be/[\w-]+)")
+VIDEO_ID_RE = re.compile(r"(?:youtu\.be/|watch\?v=|shorts/)([\w-]+)")
 DURATION_RE = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?")
 
 
@@ -123,30 +124,41 @@ def fetch_meta(url):
     }
 
 
+TRANSCRIPT_RETRY_DELAYS = (15, 30)  # seconds to wait after a 429 before retrying
+
+
 def fetch_transcript(url):
     """Return plain-text transcript, or '' if none. Uses yt-dlp json3 captions."""
-    with tempfile.TemporaryDirectory() as tmp:
-        out = os.path.join(tmp, "%(id)s.%(ext)s")
-        r = run([
-            "yt-dlp", "--skip-download",
-            "--write-subs", "--write-auto-subs",
-            "--sub-langs", LANG, "--sub-format", "json3",
-            "-o", out, url,
-        ])
-        files = [f for f in Path(tmp).iterdir() if f.suffix == ".json3"]
-        if not files:
-            if r.returncode != 0 and r.stderr.strip():
-                print(f"  ! transcript fetch failed: {r.stderr.strip().splitlines()[-1]}", file=sys.stderr)
-            return ""
-        data = json.loads(files[0].read_text(encoding="utf-8"))
-        parts = []
-        for ev in data.get("events", []):
-            if not ev.get("segs"):
-                continue
-            text = "".join(s.get("utf8", "") for s in ev["segs"]).replace("\n", " ").strip()
-            if text:
-                parts.append(text)
-        return " ".join(parts)
+    delays = list(TRANSCRIPT_RETRY_DELAYS) + [None]  # None = last attempt, no more retries
+    for attempt, delay_after_failure in enumerate(delays):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "%(id)s.%(ext)s")
+            r = run([
+                "yt-dlp", "--skip-download",
+                "--write-subs", "--write-auto-subs",
+                "--sub-langs", LANG, "--sub-format", "json3",
+                "-o", out, url,
+            ])
+            files = [f for f in Path(tmp).iterdir() if f.suffix == ".json3"]
+            if not files:
+                rate_limited = "429" in r.stderr
+                if r.returncode != 0 and r.stderr.strip():
+                    print(f"  ! transcript fetch failed: {r.stderr.strip().splitlines()[-1]}", file=sys.stderr)
+                if rate_limited and delay_after_failure is not None:
+                    print(f"  ! rate limited — retrying in {delay_after_failure}s "
+                          f"(attempt {attempt + 2}/{len(delays)})", file=sys.stderr)
+                    time.sleep(delay_after_failure)
+                    continue
+                return ""
+            data = json.loads(files[0].read_text(encoding="utf-8"))
+            parts = []
+            for ev in data.get("events", []):
+                if not ev.get("segs"):
+                    continue
+                text = "".join(s.get("utf8", "") for s in ev["segs"]).replace("\n", " ").strip()
+                if text:
+                    parts.append(text)
+            return " ".join(parts)
 
 
 def fmt_duration(seconds):
