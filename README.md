@@ -76,6 +76,8 @@ processed: true
      · Claude cleans the transcript, summarizes with your topic's
        focus, and issues the verdict
      · finished note moves to Reviewed/, the stub is deleted
+     · if the transcript stays rate-limited (429) after retries, the
+       note is left in place with a warning callout — just run again
         │
         ▼
 3. Optional: "Run Watch Channels.command" / "Run Review Videos.command"
@@ -156,10 +158,13 @@ echo "$URL" > "$VAULT/YouTube Share $(date +%Y%m%d-%H%M%S).md"
 
 - **Transcript fetching uses yt-dlp**, which scrapes YouTube's internal
   caption endpoint. That endpoint rate-limits aggressively (HTTP 429) —
-  the script retries with backoff and tells you when it happens, but
-  sometimes a transcript just won't come through until later. There is
-  no official free API for other people's captions; this is the
-  trade-off the whole category lives with.
+  the script retries twice with backoff (15s, then 30s) before giving up.
+  If it's still rate-limited after that, the note is left untouched in
+  the vault root (not finalized, not marked `processed`) with a
+  `[!warning] Transcript rate-limited (429)` callout prepended, so it's
+  obvious at a glance and gets retried automatically the next time you
+  run `Run Enrich.command`. There is no official free API for other
+  people's captions; this is the trade-off the whole category lives with.
 - **Reprocessing a note** means moving it out of `Reviewed/` back to the
   vault root and deleting the `processed: true` frontmatter line — the
   script only scans the vault root.
