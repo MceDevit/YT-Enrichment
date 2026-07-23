@@ -127,8 +127,17 @@ def fetch_meta(url):
 TRANSCRIPT_RETRY_DELAYS = (15, 30)  # seconds to wait after a 429 before retrying
 
 
+class TranscriptRateLimited(Exception):
+    """Raised when yt-dlp still hits a 429 after all retries are exhausted."""
+
+
 def fetch_transcript(url):
-    """Return plain-text transcript, or '' if none. Uses yt-dlp json3 captions."""
+    """Return plain-text transcript, or '' if no captions exist.
+
+    Raises TranscriptRateLimited if every attempt was rejected with a 429 —
+    callers should leave the item untouched so it's retried on the next run,
+    rather than finalizing a note with a permanently-missing transcript.
+    """
     delays = list(TRANSCRIPT_RETRY_DELAYS) + [None]  # None = last attempt, no more retries
     for attempt, delay_after_failure in enumerate(delays):
         with tempfile.TemporaryDirectory() as tmp:
@@ -149,6 +158,8 @@ def fetch_transcript(url):
                           f"(attempt {attempt + 2}/{len(delays)})", file=sys.stderr)
                     time.sleep(delay_after_failure)
                     continue
+                if rate_limited:
+                    raise TranscriptRateLimited(url)
                 return ""
             data = json.loads(files[0].read_text(encoding="utf-8"))
             parts = []
@@ -262,6 +273,21 @@ def already_processed(text):
     return re.search(r"^processed:\s*true\s*$", text, re.MULTILINE) is not None
 
 
+RATE_LIMIT_MARKER = "> [!warning] Transcript rate-limited (429) — will retry automatically next run"
+FRONTMATTER_RE = re.compile(r"^(---\n.*?\n---\n)", re.DOTALL)
+
+
+def mark_rate_limited(src):
+    """Prepend a visible warning to a stub note so a stuck 429 is obvious at a glance."""
+    text = src.read_text(encoding="utf-8")
+    if RATE_LIMIT_MARKER in text:
+        return
+    m = FRONTMATTER_RE.match(text)
+    insert_at = m.end() if m else 0
+    marker_block = f"{RATE_LIMIT_MARKER}\n\n"
+    src.write_text(text[:insert_at] + marker_block + text[insert_at:], encoding="utf-8")
+
+
 def collect_urls():
     """Yield (url, source_path_or_None). Sources: _links.md lines, and .md notes."""
     seen = set()
@@ -335,6 +361,11 @@ def main(focus_getter=None):
             if src and src.exists() and src.resolve() != dest.resolve():
                 src.unlink()
             done_urls.append(url)
+        except TranscriptRateLimited:
+            print("  ! still rate-limited after retries — flagging note, "
+                  "will retry on the next run", file=sys.stderr)
+            if src and src.exists():
+                mark_rate_limited(src)
         except Exception as e:
             print(f"  ! failed: {e}", file=sys.stderr)
 
