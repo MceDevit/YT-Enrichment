@@ -1,5 +1,6 @@
 #!/bin/bash
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 cd "$(dirname "$0")"
-python3 enrich_youtube_auto.py
+/opt/homebrew/bin/python3 enrich_youtube_auto.py
 echo
 read -p "Press Enter to close..."
