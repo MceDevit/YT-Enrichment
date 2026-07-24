@@ -152,6 +152,57 @@ URL=$(osascript -e 'tell application "Brave Browser" to get URL of active tab of
 echo "$URL" > "$VAULT/YouTube Share $(date +%Y%m%d-%H%M%S).md"
 ```
 
+## Running it remotely from an iPad/iPhone (SSH + Shortcuts)
+
+If you keep an always-on Mac (e.g. a Mac mini) running this pipeline,
+you can trigger `Run_Enrich.command` from your phone or iPad without
+being anywhere near that Mac — no separate app, just Shortcuts + SSH.
+
+**1. Put both devices on the same private network with Tailscale.**
+Install [Tailscale](https://tailscale.com) on the Mac and on your
+iPad/iPhone, sign in with the same account on both, and the Mac gets a
+stable address (e.g. `100.x.x.x` or a name like `mces-mac-mini`) reachable
+from anywhere, without opening any ports on your router.
+
+**2. Set up SSH key auth to the Mac** (so Shortcuts never has to type a
+password):
+
+```bash
+# on whichever device will initiate the SSH connection
+ssh-keygen -t ed25519 -C "shortcut"
+cat ~/.ssh/id_ed25519.pub
+```
+
+Append that public key to `~/.ssh/authorized_keys` on the Mac you're
+connecting to, then confirm it works with no password prompt:
+
+```bash
+ssh -T yourmac-hostname
+```
+
+**3. Use the `_Headless.sh` variant, not the `.command` one.** The
+`.command` scripts end with `read -p "Press Enter to close..."`, which
+assumes an interactive terminal — over SSH with no one there to press
+Enter, that just hangs forever. `Run_Enrich_Headless.sh` (and its
+`Run_Watch_Channels_Headless.sh` / `Run_Review_Videos_Headless.sh`
+siblings) drop that pause and explicitly load your shell's environment
+(`PATH`, `YOUTUBE_API_KEY`, `ANTHROPIC_API_KEY`), since a non-interactive
+SSH session doesn't source `~/.zshrc` on its own.
+
+**4. Build the Shortcut.** In the Shortcuts app: add a **"Run Script Over
+SSH"** action, fill in the Mac's Tailscale hostname/IP, your username,
+and authenticate with the SSH key (not a password). For the script to
+run, point it at the headless script's full path, e.g.:
+
+```bash
+bash "/Users/yourname/Documents/YT-Enrichment/Run_Enrich_Headless.sh"
+```
+
+Save the Shortcut, optionally add it to your Home Screen or give it a
+Siri phrase, and running it will SSH into the Mac, enrich everything
+sitting in your vault, and return the script's output straight into
+Shortcuts — all without touching the Mac itself.
+
 ## Costs
 
 - **YouTube metadata**: free — 1 quota unit per video against a 10,000/day
