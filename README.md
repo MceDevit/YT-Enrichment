@@ -95,6 +95,12 @@ processed: true
 Double-click in Finder; they open Terminal and pause at the end so you
 can read the output.
 
+Each also has a `_Headless.sh` twin (`Run_Enrich_Headless.sh`, etc.) —
+same logic, but no `read -p` pause at the end, meant for non-interactive
+triggers like an SSH command from an iPad/iPhone Shortcut rather than a
+Finder double-click (a pause with nothing to press Enter on would just
+hang forever).
+
 ## Setup
 
 **Requirements:** macOS, Python 3, [Obsidian](https://obsidian.md) with a
