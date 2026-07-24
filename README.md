@@ -70,7 +70,7 @@ processed: true
    Anywhere: paste a link into _links.md or any .md note
         │
         ▼   (iCloud/your sync brings it to the Mac)
-2. Run "Run Enrich.command"
+2. Run "Run_Enrich.command"
      · metadata via the YouTube Data API v3
      · transcript via yt-dlp (skipped over the length limit)
      · Claude cleans the transcript, summarizes with your topic's
@@ -80,7 +80,7 @@ processed: true
        note is left in place with a warning callout — just run again
         │
         ▼
-3. Optional: "Run Watch Channels.command" / "Run Review Videos.command"
+3. Optional: "Run_Watch_Channels.command" / "Run_Review_Videos.command"
    surface new uploads from channels you've already reviewed
 ```
 
@@ -88,9 +88,9 @@ processed: true
 
 | Command | What it does |
 |---|---|
-| **`Run Enrich.command`** | The day-to-day one. Processes every captured link: metadata, transcript, summary, verdict, moves to `Reviewed/`. |
-| **`Run Watch Channels.command`** | Auto-queues new uploads from every channel behind your `Reviewed/` notes (first run per channel only sets a baseline). |
-| **`Run Review Videos.command`** | Same scan, but opens a local page (`127.0.0.1:8743`) with thumbnails and per-video **Add** / **Skip** buttons. |
+| **`Run_Enrich.command`** | The day-to-day one. Processes every captured link: metadata, transcript, summary, verdict, moves to `Reviewed/`. |
+| **`Run_Watch_Channels.command`** | Auto-queues new uploads from every channel behind your `Reviewed/` notes (first run per channel only sets a baseline). |
+| **`Run_Review_Videos.command`** | Same scan, but opens a local page (`127.0.0.1:8743`) with thumbnails and per-video **Add** / **Skip** buttons. |
 
 Double-click in Finder; they open Terminal and pause at the end so you
 can read the output.
@@ -163,7 +163,7 @@ echo "$URL" > "$VAULT/YouTube Share $(date +%Y%m%d-%H%M%S).md"
   the vault root (not finalized, not marked `processed`) with a
   `[!warning] Transcript rate-limited (429)` callout prepended, so it's
   obvious at a glance and gets retried automatically the next time you
-  run `Run Enrich.command`. There is no official free API for other
+  run `Run_Enrich.command`. There is no official free API for other
   people's captions; this is the trade-off the whole category lives with.
 - **Reprocessing a note** means moving it out of `Reviewed/` back to the
   vault root and deleting the `processed: true` frontmatter line — the
@@ -176,7 +176,7 @@ echo "$URL" > "$VAULT/YouTube Share $(date +%Y%m%d-%H%M%S).md"
 ## Files
 
 - `enrich_youtube.py` — core engine (imported by everything else)
-- `enrich_youtube_auto.py` — reads `_youtube_settings.md`, runs the pipeline with no prompts (what `Run Enrich.command` calls)
+- `enrich_youtube_auto.py` — reads `_youtube_settings.md`, runs the pipeline with no prompts (what `Run_Enrich.command` calls)
 - `reformat_transcript.py` — transcript → readable prose (when `use_claude: yes`)
 - `watch_channels.py` / `review_videos.py` — channel watching engines
 - `_youtube_settings.md` — settings **template** (live copy goes in your vault)
