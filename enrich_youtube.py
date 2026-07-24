@@ -124,7 +124,8 @@ def fetch_meta(url):
     }
 
 
-TRANSCRIPT_RETRY_DELAYS = (15, 30)  # seconds to wait after a 429 before retrying
+TRANSCRIPT_RETRY_DELAYS = ()  # seconds to wait after each 429 before retrying; set via
+                               # transcript_retries in _youtube_settings.md (default: no retries)
 
 
 class TranscriptRateLimited(Exception):

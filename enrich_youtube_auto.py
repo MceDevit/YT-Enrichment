@@ -12,6 +12,8 @@ behavior — no need to touch this script or answer prompts at runtime.
 Settings file format:
 
     use_claude: yes
+    transcript_retries: 0   # 0-2; how many times to retry a rate-limited (429)
+                            # transcript fetch, with backoff (15s, then 30s). Default 0 = no retries.
 
     ## Default
     focus: <text used when nothing else matches>
@@ -40,13 +42,19 @@ SETTINGS_FILE = core.VAULT / "_youtube_settings.md"
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 
 
+TRANSCRIPT_RETRY_DELAYS = (15, 30)  # available backoff steps; transcript_retries picks how many to use
+
+
 def parse_settings(text):
-    """Returns (use_claude: bool, max_transcript_minutes: int|None, sections: list[dict{name, keywords, focus}])."""
+    """Returns (use_claude: bool, max_transcript_minutes: int|None, transcript_retries: int|None, sections: list[dict{name, keywords, focus}])."""
     use_claude_m = re.search(r"^use_claude:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
     use_claude = bool(use_claude_m and use_claude_m.group(1).lower() in ("yes", "true", "on", "1"))
 
     max_minutes_m = re.search(r"^max_transcript_minutes:\s*(\d+)", text, re.MULTILINE | re.IGNORECASE)
     max_transcript_minutes = int(max_minutes_m.group(1)) if max_minutes_m else None
+
+    retries_m = re.search(r"^transcript_retries:\s*(\d+)", text, re.MULTILINE | re.IGNORECASE)
+    transcript_retries = int(retries_m.group(1)) if retries_m else None
 
     # split into (name, body) per "## Heading" section
     headers = list(SECTION_RE.finditer(text))
@@ -65,7 +73,7 @@ def parse_settings(text):
 
         sections.append({"name": name, "keywords": keywords, "focus": focus})
 
-    return use_claude, max_transcript_minutes, sections
+    return use_claude, max_transcript_minutes, transcript_retries, sections
 
 
 def make_focus_getter(sections):
@@ -90,15 +98,18 @@ def main():
         return
 
     text = SETTINGS_FILE.read_text(encoding="utf-8")
-    use_claude, max_transcript_minutes, sections = parse_settings(text)
+    use_claude, max_transcript_minutes, transcript_retries, sections = parse_settings(text)
 
     core.USE_CLAUDE = use_claude
     if max_transcript_minutes is not None:
         core.MAX_TRANSCRIPT_SECONDS = max_transcript_minutes * 60
+    retries = transcript_retries if transcript_retries is not None else 0
+    core.TRANSCRIPT_RETRY_DELAYS = TRANSCRIPT_RETRY_DELAYS[:retries]
 
     print(f"Settings loaded from {SETTINGS_FILE.name}")
     print(f"Summaries: {'ON' if use_claude else 'OFF'}")
     print(f"Max transcript length: {core.MAX_TRANSCRIPT_SECONDS // 60} min")
+    print(f"Transcript rate-limit retries: {len(core.TRANSCRIPT_RETRY_DELAYS)}")
     if use_claude:
         names = ", ".join(s["name"] for s in sections if s["name"].lower() != "default")
         print(f"Topics configured: {names or '(none — Default only)'}\n")

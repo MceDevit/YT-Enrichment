@@ -127,6 +127,7 @@ and edit it in Obsidian — that copy is the live config:
 ```markdown
 use_claude: yes
 max_transcript_minutes: 60
+transcript_retries: 0
 
 ## Default
 focus: General summary — actionable takeaways, resources mentioned,
@@ -163,14 +164,17 @@ echo "$URL" > "$VAULT/YouTube Share $(date +%Y%m%d-%H%M%S).md"
 ## Known limitations (honest ones)
 
 - **Transcript fetching uses yt-dlp**, which scrapes YouTube's internal
-  caption endpoint. That endpoint rate-limits aggressively (HTTP 429) —
-  the script retries twice with backoff (15s, then 30s) before giving up.
-  If it's still rate-limited after that, the note is left untouched in
-  the vault root (not finalized, not marked `processed`) with a
-  `[!warning] Transcript rate-limited (429)` callout prepended, so it's
-  obvious at a glance and gets retried automatically the next time you
-  run `Run_Enrich.command`. There is no official free API for other
-  people's captions; this is the trade-off the whole category lives with.
+  caption endpoint. That endpoint rate-limits aggressively (HTTP 429).
+  By default the script doesn't retry — a rate-limited video is left
+  untouched in the vault root (not finalized, not marked `processed`)
+  with a `[!warning] Transcript rate-limited (429)` callout prepended,
+  so it's obvious at a glance and gets retried automatically the next
+  time you run `Run_Enrich.command`. Set `transcript_retries: 1` or `2`
+  in `_youtube_settings.md` if you'd rather it wait and retry within
+  the same run (15s, then 30s backoff) before giving up — in practice
+  this rarely helps, since the rate limit tends to outlast a couple of
+  short waits. There is no official free API for other people's
+  captions; this is the trade-off the whole category lives with.
 - **Reprocessing a note** means moving it out of `Reviewed/` back to the
   vault root and deleting the `processed: true` frontmatter line — the
   script only scans the vault root.
