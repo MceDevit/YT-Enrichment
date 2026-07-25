@@ -95,11 +95,14 @@ processed: true
 Double-click in Finder; they open Terminal and pause at the end so you
 can read the output.
 
-Each also has a `_Headless.sh` twin (`Run_Enrich_Headless.sh`, etc.) —
-same logic, but no `read -p` pause at the end, meant for non-interactive
-triggers like an SSH command from an iPad/iPhone Shortcut rather than a
-Finder double-click (a pause with nothing to press Enter on would just
-hang forever).
+`Run_Enrich.command` and `Run_Watch_Channels.command` also have a
+`_Headless.sh` twin — same logic, but no `read -p` pause at the end,
+meant for non-interactive triggers like an SSH command from an
+iPad/iPhone Shortcut rather than a Finder double-click (a pause with
+nothing to press Enter on would just hang forever). `Run_Review_Videos`
+doesn't have one: it opens a local webpage bound to `127.0.0.1` and
+blocks forever serving it, so it only makes sense run interactively at
+the Mac itself.
 
 ## Setup
 
@@ -183,11 +186,13 @@ ssh -T yourmac-hostname
 **3. Use the `_Headless.sh` variant, not the `.command` one.** The
 `.command` scripts end with `read -p "Press Enter to close..."`, which
 assumes an interactive terminal — over SSH with no one there to press
-Enter, that just hangs forever. `Run_Enrich_Headless.sh` (and its
-`Run_Watch_Channels_Headless.sh` / `Run_Review_Videos_Headless.sh`
-siblings) drop that pause and explicitly load your shell's environment
-(`PATH`, `YOUTUBE_API_KEY`, `ANTHROPIC_API_KEY`), since a non-interactive
-SSH session doesn't source `~/.zshrc` on its own.
+Enter, that just hangs forever. `Run_Enrich_Headless.sh` and
+`Run_Watch_Channels_Headless.sh` drop that pause and explicitly load
+your shell's environment (`PATH`, `YOUTUBE_API_KEY`,
+`ANTHROPIC_API_KEY`), since a non-interactive SSH session doesn't
+source `~/.zshrc` on its own. `Run_Review_Videos` has no headless
+twin — it opens a local review webpage and blocks forever serving it,
+so it only makes sense to run that one at the Mac itself.
 
 **4. Build the Shortcut.** In the Shortcuts app: add a **"Run Script Over
 SSH"** action, fill in the Mac's Tailscale hostname/IP, your username,
