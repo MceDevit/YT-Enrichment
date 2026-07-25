@@ -1,0 +1,119 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+A local pipeline that turns a shared YouTube link into an enriched Obsidian
+note: metadata (YouTube Data API v3), a cleaned-up transcript (yt-dlp +
+Claude), a per-topic-focused Claude summary, and a one-line "worth watching?"
+verdict in a `[!danger]` callout. No server, no accounts — everything runs on
+the user's Mac against their own vault and API keys.
+
+## Running / testing
+
+There is no build step, package manifest, or test suite — this is a handful
+of standalone scripts run directly with `python3`.
+
+```bash
+# the main pipeline (reads _youtube_settings.md from the vault, no prompts)
+python3 enrich_youtube_auto.py
+
+# same pipeline but asks once at the start whether to use Claude summaries
+python3 enrich_youtube_interactive.py
+
+# check reviewed channels for new uploads, auto-queue into the vault
+python3 watch_channels.py
+
+# same channel scan, but via a local approve/skip webpage at 127.0.0.1:8743
+python3 review_videos.py
+```
+
+Manual smoke test for transcript cleanup:
+```bash
+python3 reformat_transcript.py   # runs the __main__ sample at the bottom of the file
+```
+
+Requires `vault_path.txt` (gitignored, copy from `vault_path.txt.example`)
+pointing at a real Obsidian vault, plus `YOUTUBE_API_KEY` and (optionally)
+`ANTHROPIC_API_KEY` exported in the shell. Without a real vault + API keys,
+these scripts can't be exercised end-to-end — there's no mock/fixture mode.
+
+The `.command` files are Finder-double-click wrappers around the same
+scripts (pause at the end via `read -p`); the `_Headless.sh` twins drop that
+pause and explicitly `source ~/.zshrc` for non-interactive SSH invocation
+(e.g. from an iPhone Shortcut). `review_videos.py` has no headless twin — it
+blocks forever serving a local webpage, so it only makes sense run
+interactively at the Mac.
+
+## Architecture
+
+**`enrich_youtube.py` is the core engine** — every other script imports it
+(`import enrich_youtube as core`) rather than duplicating logic. It owns:
+- vault path resolution (`_load_vault()` reads `vault_path.txt` once at import time)
+- the module-level config block (`VAULT`, `INBOX`, `REVIEWED`, `LANG`,
+  `MAX_TRANSCRIPT_SECONDS`, `USE_CLAUDE`, `CLAUDE_MODEL`, ...) — callers
+  mutate these attributes on the imported module (`core.USE_CLAUDE = True`)
+  rather than passing parameters, since `main()` reads them as globals
+- `collect_urls()` — finds unprocessed YouTube links either as lines in
+  `_links.md` or embedded in any `.md` note sitting in the vault root
+- `fetch_meta()` / `fetch_transcript()` — YouTube Data API v3 for metadata,
+  yt-dlp (via `--write-auto-subs --sub-format json3`) for captions
+- `main(focus_getter=None)` — the actual pipeline: fetch → maybe skip
+  transcript by length → optionally reformat + summarize via Claude →
+  build the note → move it to `Reviewed/` → prune `_links.md`. The
+  `focus_getter` callback lets a caller inject a per-video summary focus
+  right before summarizing without `main()` needing to know why.
+
+**Settings-driven vs. interactive vs. programmatic** are three thin
+wrappers over that one `main()`:
+- `enrich_youtube_auto.py` parses `_youtube_settings.md` from the vault (a
+  plain-Markdown config the user edits in Obsidian) into
+  `(use_claude, max_transcript_minutes, transcript_retries, sections)`,
+  builds a keyword-matching `focus_getter` from the `## Topic` sections, and
+  drives `core.main()`. This is what the `Run_Enrich*` launchers call.
+- `enrich_youtube_interactive.py` asks one y/n question at startup instead
+  of reading settings, then calls `core.main()` with an `input()`-based
+  `focus_getter`.
+- Both mutate `core.USE_CLAUDE` / `core.MAX_TRANSCRIPT_SECONDS` /
+  `core.TRANSCRIPT_RETRY_DELAYS` on the shared module before calling `main()`.
+
+**Channel watching** (`watch_channels.py`, `review_videos.py`) is a second
+subsystem built on the same `core` import, plus YouTube's public per-channel
+RSS feed (no API key needed): it scans `Reviewed/` notes for
+`channel` / `channel_id` frontmatter, resolves missing channel IDs via a
+one-off `yt-dlp -J` lookup, tracks a `seen_video_ids` / `bootstrapped` cache
+in `.channel_watch_cache.json`, and on each run either establishes a
+per-channel baseline (first run) or drops new-upload stub notes into the
+vault root for `enrich_youtube.py` to pick up next. `review_videos.py`
+reuses `watch_channels.py`'s cache/feed functions (`import watch_channels as
+wc`) and adds a stdlib-only local HTTP server (no Flask) serving an
+approve/skip page, so accepting a video just writes the same stub note
+`watch_channels.py` would have written automatically.
+
+**`reformat_transcript.py`** is a standalone Claude call (plain `requests`
+POST to the Messages API, not the `anthropic` SDK — kept as the project's
+only non-stdlib dependency alongside `requests` itself) that turns a raw
+run-on yt-dlp transcript into punctuated prose. Imported by
+`enrich_youtube.py`, only invoked when `USE_CLAUDE` is on.
+
+### Key invariants
+
+- **Idempotency**: a note with `processed: true` in frontmatter is never
+  re-touched by `enrich_youtube.py` (`already_processed()`). Reprocessing
+  means manually clearing that flag and moving the note back to the vault
+  root — the script only scans the root, not `Reviewed/`.
+- **429 handling**: `fetch_transcript()` raises `TranscriptRateLimited`
+  after exhausting `TRANSCRIPT_RETRY_DELAYS` (set from
+  `transcript_retries` in the settings file). The caller in `main()`
+  catches this and leaves the source note untouched but visibly flagged
+  (`mark_rate_limited()` prepends a `[!warning]` callout) rather than
+  finalizing a note with no transcript — this makes the note eligible for
+  automatic retry on the next run instead of silently losing the transcript.
+- **`_youtube_settings.md` lives in two places**: this repo's copy is a
+  template; the live config Claude/the scripts actually read is the copy
+  the user keeps in their vault root (`core.VAULT / "_youtube_settings.md"`).
+- Model name strings (`claude-sonnet-5`) are duplicated in
+  `enrich_youtube.py` and `reformat_transcript.py` — check
+  https://docs.claude.com/en/docs/about-claude/models before assuming
+  either is current when debugging summary/reformat issues.
