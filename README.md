@@ -27,9 +27,12 @@ date_watched: 2026-07-22
 tags: [youtube]
 status: reviewed
 processed: true
+transcript_done: 2026-07-22 14:53
+model_reformat: claude-haiku-4-5-20251001
+model_summary: claude-haiku-4-5-20251001
 ---
 
-> [!danger] Worth watching? Maybe — useful if you actively use the
+> [!warning] Worth watching? Maybe — useful if you actively use the
 > feature being demoed, but the core insight is fully captured in
 > this summary.
 
@@ -42,6 +45,9 @@ processed: true
 ## Transcript
 ...full transcript, cleaned into readable prose...
 ```
+
+The verdict callout is color-coded so you can triage at a glance: **Yes**
+→ green, **Maybe** → orange (shown above), **No** → red.
 
 ## Features
 
@@ -131,6 +137,8 @@ and edit it in Obsidian — that copy is the live config:
 use_claude: yes
 max_transcript_minutes: 60
 transcript_retries: 0
+model_summary: claude-sonnet-5      # or claude-haiku-4-5-20251001 for faster/cheaper summaries
+model_reformat: claude-sonnet-5     # transcript cleanup model — can differ from model_summary
 
 ## Default
 focus: General summary — actionable takeaways, resources mentioned,
@@ -141,6 +149,12 @@ keywords: keyword1, keyword2, ...
 focus: What you want the summary (and verdict) to prioritize for
 videos matching these keywords.
 ```
+
+`model_summary` and `model_reformat` are independent — e.g. run transcript
+cleanup on the cheaper/faster Haiku while keeping the summary + verdict on
+Sonnet, since verdict judgment tends to benefit more from the stronger model.
+Both default to `claude-sonnet-5` if omitted. Model names change over time —
+confirm current strings at https://docs.claude.com/en/docs/about-claude/models.
 
 Capture on mobile needs nothing extra — Obsidian's Share Sheet target
 creates the stub note. On the Mac, build a small Automator Quick Action
@@ -207,6 +221,12 @@ Save the Shortcut, optionally add it to your Home Screen or give it a
 Siri phrase, and running it will SSH into the Mac, enrich everything
 sitting in your vault, and return the script's output straight into
 Shortcuts — all without touching the Mac itself.
+
+**To actually see that output**, add a display step after "Run Script
+Over SSH" — e.g. **Show Result** (or **Show Content** / **Show Alert** /
+**Show Notification**, whichever your iOS version surfaces), fed with the
+magic variable for the SSH action's result. Without a step like this,
+Shortcuts runs the script silently and shows nothing on screen.
 
 ## Costs
 
