@@ -46,7 +46,7 @@ TRANSCRIPT_RETRY_DELAYS = (15, 30)  # available backoff steps; transcript_retrie
 
 
 def parse_settings(text):
-    """Returns (use_claude: bool, max_transcript_minutes: int|None, transcript_retries: int|None, sections: list[dict{name, keywords, focus}])."""
+    """Returns (use_claude: bool, max_transcript_minutes: int|None, transcript_retries: int|None, model_summary: str|None, model_reformat: str|None, sections: list[dict{name, keywords, focus}])."""
     use_claude_m = re.search(r"^use_claude:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
     use_claude = bool(use_claude_m and use_claude_m.group(1).lower() in ("yes", "true", "on", "1"))
 
@@ -55,6 +55,12 @@ def parse_settings(text):
 
     retries_m = re.search(r"^transcript_retries:\s*(\d+)", text, re.MULTILINE | re.IGNORECASE)
     transcript_retries = int(retries_m.group(1)) if retries_m else None
+
+    model_summary_m = re.search(r"^model_summary:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
+    model_summary = model_summary_m.group(1).strip() if model_summary_m else None
+
+    model_reformat_m = re.search(r"^model_reformat:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
+    model_reformat = model_reformat_m.group(1).strip() if model_reformat_m else None
 
     # split into (name, body) per "## Heading" section
     headers = list(SECTION_RE.finditer(text))
@@ -73,7 +79,7 @@ def parse_settings(text):
 
         sections.append({"name": name, "keywords": keywords, "focus": focus})
 
-    return use_claude, max_transcript_minutes, transcript_retries, sections
+    return use_claude, max_transcript_minutes, transcript_retries, model_summary, model_reformat, sections
 
 
 def make_focus_getter(sections):
@@ -98,18 +104,24 @@ def main():
         return
 
     text = SETTINGS_FILE.read_text(encoding="utf-8")
-    use_claude, max_transcript_minutes, transcript_retries, sections = parse_settings(text)
+    use_claude, max_transcript_minutes, transcript_retries, model_summary, model_reformat, sections = parse_settings(text)
 
     core.USE_CLAUDE = use_claude
     if max_transcript_minutes is not None:
         core.MAX_TRANSCRIPT_SECONDS = max_transcript_minutes * 60
     retries = transcript_retries if transcript_retries is not None else 0
     core.TRANSCRIPT_RETRY_DELAYS = TRANSCRIPT_RETRY_DELAYS[:retries]
+    if model_summary:
+        core.CLAUDE_MODEL = model_summary
+    if model_reformat:
+        core.REFORMAT_MODEL = model_reformat
 
     print(f"Settings loaded from {SETTINGS_FILE.name}")
     print(f"Summaries: {'ON' if use_claude else 'OFF'}")
     print(f"Max transcript length: {core.MAX_TRANSCRIPT_SECONDS // 60} min")
     print(f"Transcript rate-limit retries: {len(core.TRANSCRIPT_RETRY_DELAYS)}")
+    print(f"Summary model: {core.CLAUDE_MODEL}")
+    print(f"Reformat model: {core.REFORMAT_MODEL}")
     if use_claude:
         names = ", ".join(s["name"] for s in sections if s["name"].lower() != "default")
         print(f"Topics configured: {names or '(none — Default only)'}\n")

@@ -67,7 +67,8 @@ YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")  # required — see module d
 USE_CLAUDE  = False                         # True to add an AI summary
 # Model names change over time — confirm current strings at
 # https://docs.claude.com/en/docs/about-claude/models
-CLAUDE_MODEL = "claude-sonnet-5"
+CLAUDE_MODEL = "claude-sonnet-5"            # used for the summary + verdict
+REFORMAT_MODEL = "claude-sonnet-5"          # used for transcript cleanup
 CLAUDE_MAX_TOKENS = 700
 # -----------------------------------------------------------------------------
 
@@ -351,7 +352,7 @@ def main(focus_getter=None):
             else:
                 transcript = fetch_transcript(url)
                 if USE_CLAUDE and transcript:
-                    transcript = reformat_transcript(transcript) or transcript
+                    transcript = reformat_transcript(transcript, model=REFORMAT_MODEL) or transcript
             focus = focus_getter(meta) if focus_getter else None
             summary = claude_summary(meta["title"], transcript, focus=focus)
             verdict, summary = extract_verdict(summary) if summary else (None, summary)

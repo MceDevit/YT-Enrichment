@@ -1,6 +1,8 @@
 use_claude: yes
 max_transcript_minutes: 60
 transcript_retries: 0
+model_summary: claude-haiku-4-5-20251001    # used for the summary + verdict
+model_reformat: claude-haiku-4-5-20251001   # used for transcript cleanup
 
 ## Default
 focus: General summary — technical takeaways, actionable steps I could apply, any resources/tools mentioned by name, and a final verdict on whether it's worth watching in full.
