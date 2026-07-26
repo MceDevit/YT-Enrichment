@@ -169,6 +169,47 @@ URL=$(osascript -e 'tell application "Brave Browser" to get URL of active tab of
 echo "$URL" > "$VAULT/YouTube Share $(date +%Y%m%d-%H%M%S).md"
 ```
 
+## Windows setup
+
+The Python engine (`enrich_youtube.py` and friends) is portable and runs
+fine on Windows — but the `.command`/`.sh` launchers and the macOS Quick
+Action for capturing a browser tab are Mac-only, so a few things are done
+manually instead.
+
+```powershell
+git clone https://github.com/MceDevit/YT-Enrichment.git
+cd YT-Enrichment
+pip install requests yt-dlp
+
+# point the scripts at your vault (gitignored, machine-specific)
+copy vault_path.txt.example vault_path.txt
+notepad vault_path.txt   # one line, your vault's full Windows path, e.g.
+                          # C:\Users\yourname\YourVault
+
+# API keys — set as user environment variables (Settings > System > About >
+# Advanced system settings > Environment Variables), or per PowerShell session:
+setx YOUTUBE_API_KEY "..."
+setx ANTHROPIC_API_KEY "sk-ant-..."
+```
+
+Copy `_youtube_settings.md` from this repo **into your vault root** and
+edit it, same as the macOS setup.
+
+There's no Windows equivalent of the AppleScript Quick Action, so capture
+a video by pasting its link into `_links.md` in your vault root (works on
+any platform — it's the fallback method built into `collect_urls()`), or
+by sharing from Obsidian mobile if your vault syncs to the PC.
+
+To run it, open a new PowerShell/terminal window after setting the
+environment variables (so it picks them up) and run the script directly
+instead of double-clicking a launcher:
+
+```powershell
+python enrich_youtube_auto.py
+python watch_channels.py
+python review_videos.py
+```
+
 ## Running it remotely from an iPad/iPhone (SSH + Shortcuts)
 
 If you keep an always-on Mac (e.g. a Mac mini) running this pipeline,
