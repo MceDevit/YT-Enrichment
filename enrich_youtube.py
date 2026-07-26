@@ -29,7 +29,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import requests
@@ -235,11 +235,16 @@ def claude_summary(title, transcript, focus=None):
         return ""
 
 
-VERDICT_RE = re.compile(r"^VERDICT:\s*(.+)$", re.MULTILINE | re.IGNORECASE)
+VERDICT_RE = re.compile(r"^[\s>*•\-]*VERDICT:\s*(.+?)\**\s*$", re.MULTILINE | re.IGNORECASE)
 
 
 def extract_verdict(summary):
-    """Pulls the 'VERDICT: ...' line out of a summary. Returns (verdict, summary_without_it)."""
+    """Pulls the 'VERDICT: ...' line out of a summary. Returns (verdict, summary_without_it).
+
+    Tolerant of leading bullet/blockquote/bold markup (some models, e.g. Haiku,
+    fold the verdict into the last bullet — '• **VERDICT: ...**' — rather than
+    putting it on its own bare line as instructed).
+    """
     m = VERDICT_RE.search(summary or "")
     if not m:
         return None, summary
@@ -254,7 +259,7 @@ def sanitize(name):
 
 
 def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
-                reformatted=False, summarized=False):
+                reformatted=False, summarized=False, transcript_done_at=None):
     fm = [
         "---",
         f'title: "{meta["title"].replace(chr(34), chr(39))}"',
@@ -267,6 +272,8 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
         f"status: {STATUS_DONE}",
         "processed: true",
     ]
+    if transcript_done_at:
+        fm.append(f"transcript_done: {transcript_done_at}")
     if reformatted:
         fm.append(f"model_reformat: {REFORMAT_MODEL}")
     if summarized:
@@ -349,6 +356,7 @@ def main(focus_getter=None):
             meta = fetch_meta(url)
             transcript_note = None
             reformatted = False
+            transcript_done_at = None
             if meta["duration_seconds"] > MAX_TRANSCRIPT_SECONDS:
                 print(f"  (skipping transcript — {meta['duration']} exceeds "
                       f"{MAX_TRANSCRIPT_SECONDS // 60}min limit)")
@@ -361,12 +369,15 @@ def main(focus_getter=None):
                     if cleaned:
                         transcript = cleaned
                         reformatted = True
+                if transcript:
+                    transcript_done_at = datetime.now().strftime("%Y-%m-%d %H:%M")
             focus = focus_getter(meta) if focus_getter else None
             summary = claude_summary(meta["title"], transcript, focus=focus)
             summarized = bool(summary)
             verdict, summary = extract_verdict(summary) if summary else (None, summary)
             body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict,
-                               reformatted=reformatted, summarized=summarized)
+                               reformatted=reformatted, summarized=summarized,
+                               transcript_done_at=transcript_done_at)
 
             dest_dir = REVIEWED if MOVE_TO_REVIEWED else INBOX
             dest = dest_dir / f"{sanitize(meta['title'])}.md"
