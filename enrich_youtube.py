@@ -258,6 +258,17 @@ def sanitize(name):
     return re.sub(r"\s+", " ", name).strip()[:120] or "video"
 
 
+VERDICT_CALLOUT_RE = re.compile(r"^\s*(yes|maybe|no)\b", re.IGNORECASE)
+VERDICT_CALLOUTS = {"yes": "success", "maybe": "warning", "no": "danger"}
+
+
+def verdict_callout(verdict):
+    """Maps a verdict's leading Yes/Maybe/No to an Obsidian callout type
+    (green/orange/red respectively). Falls back to 'danger' if unrecognized."""
+    m = VERDICT_CALLOUT_RE.match(verdict or "")
+    return VERDICT_CALLOUTS.get(m.group(1).lower(), "danger") if m else "danger"
+
+
 def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
                 reformatted=False, summarized=False, transcript_done_at=None):
     fm = [
@@ -280,7 +291,7 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
         fm.append(f"model_summary: {CLAUDE_MODEL}")
     fm += ["---", ""]
     if verdict:
-        fm += [f"> [!danger] Worth watching? {verdict}", ""]
+        fm += [f"> [!{verdict_callout(verdict)}] Worth watching? {verdict}", ""]
     if summary:
         fm += ["## Summary", "", summary, ""]
     fm += ["## My notes", "- ", ""]
