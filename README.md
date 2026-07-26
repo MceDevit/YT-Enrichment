@@ -130,6 +130,12 @@ export YOUTUBE_API_KEY="..."             # Google Cloud Console → enable "YouT
 export ANTHROPIC_API_KEY="sk-ant-..."    # only needed if use_claude: yes
 ```
 
+New Anthropic accounts get a small amount of free API credit (no credit
+card, just phone verification) — plenty to try this out before deciding
+whether to add billing. If you'd rather not sign up for anything yet, set
+`use_claude: no` in `_youtube_settings.md`: metadata + transcript still
+work with just the free YouTube API key, no summary/verdict.
+
 Then copy `_youtube_settings.md` from this repo **into your vault root**
 and edit it in Obsidian — that copy is the live config:
 
@@ -274,8 +280,10 @@ Shortcuts runs the script silently and shows nothing on screen.
 - **YouTube metadata**: free — 1 quota unit per video against a 10,000/day
   free quota.
 - **Claude summaries**: pay-as-you-go on your own Anthropic API account;
-  typically a few cents per video, so light use runs $1–3/month. Set
-  `use_claude: no` to skip summaries entirely (metadata + transcript
+  typically a few cents per video, so light use runs $1–3/month. New
+  accounts start with a small amount of free credit (no credit card
+  needed), enough to test the whole pipeline before spending anything.
+  Set `use_claude: no` to skip summaries entirely (metadata + transcript
   still work, and cost nothing).
 
 ## Known limitations (honest ones)
