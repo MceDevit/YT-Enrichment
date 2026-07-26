@@ -253,7 +253,8 @@ def sanitize(name):
     return re.sub(r"\s+", " ", name).strip()[:120] or "video"
 
 
-def build_note(meta, transcript, summary, transcript_note=None, verdict=None):
+def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
+                reformatted=False, summarized=False):
     fm = [
         "---",
         f'title: "{meta["title"].replace(chr(34), chr(39))}"',
@@ -265,9 +266,12 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None):
         "tags: [youtube]",
         f"status: {STATUS_DONE}",
         "processed: true",
-        "---",
-        "",
     ]
+    if reformatted:
+        fm.append(f"model_reformat: {REFORMAT_MODEL}")
+    if summarized:
+        fm.append(f"model_summary: {CLAUDE_MODEL}")
+    fm += ["---", ""]
     if verdict:
         fm += [f"> [!danger] Worth watching? {verdict}", ""]
     if summary:
@@ -344,6 +348,7 @@ def main(focus_getter=None):
         try:
             meta = fetch_meta(url)
             transcript_note = None
+            reformatted = False
             if meta["duration_seconds"] > MAX_TRANSCRIPT_SECONDS:
                 print(f"  (skipping transcript — {meta['duration']} exceeds "
                       f"{MAX_TRANSCRIPT_SECONDS // 60}min limit)")
@@ -352,11 +357,16 @@ def main(focus_getter=None):
             else:
                 transcript = fetch_transcript(url)
                 if USE_CLAUDE and transcript:
-                    transcript = reformat_transcript(transcript, model=REFORMAT_MODEL) or transcript
+                    cleaned = reformat_transcript(transcript, model=REFORMAT_MODEL)
+                    if cleaned:
+                        transcript = cleaned
+                        reformatted = True
             focus = focus_getter(meta) if focus_getter else None
             summary = claude_summary(meta["title"], transcript, focus=focus)
+            summarized = bool(summary)
             verdict, summary = extract_verdict(summary) if summary else (None, summary)
-            body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict)
+            body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict,
+                               reformatted=reformatted, summarized=summarized)
 
             dest_dir = REVIEWED if MOVE_TO_REVIEWED else INBOX
             dest = dest_dir / f"{sanitize(meta['title'])}.md"
