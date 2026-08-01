@@ -343,6 +343,25 @@ def mark_rate_limited(src):
     src.write_text(text[:insert_at] + marker_block + text[insert_at:], encoding="utf-8")
 
 
+def extract_existing_transcript(text):
+    """If a stub note already has a '## Transcript' section with real content
+    (e.g. pasted in manually, or from a browser extension), return it so the
+    pipeline can reuse it instead of re-fetching via yt-dlp. Returns '' if
+    there's no such section or it's empty/placeholder text.
+    """
+    m = re.search(r"^## Transcript\s*\n+(.*)", text, re.MULTILINE | re.DOTALL)
+    if not m:
+        return ""
+    content = m.group(1)
+    next_h2 = re.search(r"\n## ", content)
+    if next_h2:
+        content = content[:next_h2.start()]
+    content = content.strip()
+    if content.startswith("_") and content.endswith("_") and len(content) < 60:
+        return ""  # our own "_No transcript available._" / "_...skipped..._" placeholders
+    return content
+
+
 def collect_urls():
     """Yield (url, source_path_or_None). Sources: _links.md lines, and .md notes."""
     seen = set()
@@ -393,20 +412,29 @@ def main(focus_getter=None):
             transcript_note = None
             reformatted = False
             transcript_done_at = None
-            if meta["duration_seconds"] > MAX_TRANSCRIPT_SECONDS:
+
+            existing_transcript = ""
+            if src is not None:
+                existing_transcript = extract_existing_transcript(src.read_text(encoding="utf-8"))
+
+            if existing_transcript:
+                print(f"  (transcript already in the note — using it, skipping fetch)")
+                transcript = existing_transcript
+            elif meta["duration_seconds"] > MAX_TRANSCRIPT_SECONDS:
                 print(f"  (skipping transcript — {meta['duration']} exceeds "
                       f"{MAX_TRANSCRIPT_SECONDS // 60}min limit)")
                 transcript = ""
                 transcript_note = "_Transcript skipped — video exceeds the length limit._"
             else:
                 transcript = fetch_transcript(url, language=meta.get("language"))
-                if USE_CLAUDE and transcript:
+
+            if transcript:
+                if USE_CLAUDE:
                     cleaned = reformat_transcript(transcript, model=REFORMAT_MODEL)
                     if cleaned:
                         transcript = cleaned
                         reformatted = True
-                if transcript:
-                    transcript_done_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+                transcript_done_at = datetime.now().strftime("%Y-%m-%d %H:%M")
             focus = focus_getter(meta) if focus_getter else None
             summary = claude_summary(meta["title"], transcript, focus=focus)
             summarized = bool(summary)
