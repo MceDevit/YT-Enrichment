@@ -57,7 +57,8 @@ VAULT       = _load_vault()                  # <-- your vault root, configured i
 INBOX       = VAULT                          # new note files land directly in the vault root
 REVIEWED    = VAULT / "Reviewed"
 LINKS_FILE  = INBOX / "_links.md"          # optional: one URL per line, only used if present
-LANG        = "en,fr"                       # preferred transcript language(s), comma-separated
+LANG        = "en,fr"                       # fallback transcript language(s) when the video's own
+                                              # default audio language isn't reported by the API
 MAX_TRANSCRIPT_SECONDS = 3600                # skip transcript fetch for videos longer than this (movies, etc.)
 STATUS_DONE = "reviewed"                    # frontmatter status after enrich
 MOVE_TO_REVIEWED = True                     # False = keep enriched notes in Inbox
@@ -116,6 +117,7 @@ def fetch_meta(url):
     duration_s = parse_iso8601_duration(items[0]["contentDetails"]["duration"])
     return {
         "id": video_id,
+        "language": snippet.get("defaultAudioLanguage") or snippet.get("defaultLanguage"),
         "title": snippet.get("title", "Untitled"),
         "channel": snippet.get("channelTitle", ""),
         "channel_id": snippet.get("channelId", ""),
@@ -133,13 +135,25 @@ class TranscriptRateLimited(Exception):
     """Raised when yt-dlp still hits a 429 after all retries are exhausted."""
 
 
-def fetch_transcript(url):
+def fetch_transcript(url, language=None):
     """Return plain-text transcript, or '' if no captions exist.
+
+    `language` is the video's own default audio language (from the YouTube
+    Data API, when available). When set, we request only that language
+    instead of the full LANG fallback list — for a non-English video like a
+    French one, requesting "en,fr" makes yt-dlp fetch its native `fr` track
+    *and* YouTube's auto-translated `en` track, and that translation
+    endpoint is throttled harder than native captions. Requesting just `fr`
+    skips the translated track entirely, roughly halving requests and
+    avoiding the harsher-throttled endpoint — this is the main fix for 429s
+    that cluster on non-English videos. Falls back to LANG when the API
+    didn't report a language.
 
     Raises TranscriptRateLimited if every attempt was rejected with a 429 —
     callers should leave the item untouched so it's retried on the next run,
     rather than finalizing a note with a permanently-missing transcript.
     """
+    sub_langs = language if language else LANG
     delays = list(TRANSCRIPT_RETRY_DELAYS) + [None]  # None = last attempt, no more retries
     for attempt, delay_after_failure in enumerate(delays):
         with tempfile.TemporaryDirectory() as tmp:
@@ -147,7 +161,8 @@ def fetch_transcript(url):
             r = run([
                 "yt-dlp", "--skip-download",
                 "--write-subs", "--write-auto-subs",
-                "--sub-langs", LANG, "--sub-format", "json3",
+                "--sub-langs", sub_langs, "--sub-format", "json3",
+                "--sleep-subtitles", "2",
                 "-o", out, url,
             ])
             files = [f for f in Path(tmp).iterdir() if f.suffix == ".json3"]
@@ -374,7 +389,7 @@ def main(focus_getter=None):
                 transcript = ""
                 transcript_note = "_Transcript skipped — video exceeds the length limit._"
             else:
-                transcript = fetch_transcript(url)
+                transcript = fetch_transcript(url, language=meta.get("language"))
                 if USE_CLAUDE and transcript:
                     cleaned = reformat_transcript(transcript, model=REFORMAT_MODEL)
                     if cleaned:
