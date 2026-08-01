@@ -82,8 +82,6 @@ The verdict callout is color-coded so you can triage at a glance: **Yes**
      · Claude cleans the transcript, summarizes with your topic's
        focus, and issues the verdict
      · finished note moves to Reviewed/, the stub is deleted
-     · if the transcript stays rate-limited (429) after retries, the
-       note is left in place with a warning callout — just run again
         │
         ▼
 3. Optional: "Run_Watch_Channels.command" / "Run_Review_Videos.command"
@@ -289,17 +287,8 @@ Shortcuts runs the script silently and shows nothing on screen.
 ## Known limitations (honest ones)
 
 - **Transcript fetching uses yt-dlp**, which scrapes YouTube's internal
-  caption endpoint. That endpoint rate-limits aggressively (HTTP 429).
-  By default the script doesn't retry — a rate-limited video is left
-  untouched in the vault root (not finalized, not marked `processed`)
-  with a `[!warning] Transcript rate-limited (429)` callout prepended,
-  so it's obvious at a glance and gets retried automatically the next
-  time you run `Run_Enrich.command`. Set `transcript_retries: 1` or `2`
-  in `_youtube_settings.md` if you'd rather it wait and retry within
-  the same run (15s, then 30s backoff) before giving up — in practice
-  this rarely helps, since the rate limit tends to outlast a couple of
-  short waits. There is no official free API for other people's
-  captions; this is the trade-off the whole category lives with.
+  caption endpoint — there is no official free API for other people's
+  captions, so this is the trade-off the whole category lives with.
 - **Reprocessing a note** means moving it out of `Reviewed/` back to the
   vault root and deleting the `processed: true` frontmatter line — the
   script only scans the vault root.
