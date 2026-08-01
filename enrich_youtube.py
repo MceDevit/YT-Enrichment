@@ -149,11 +149,21 @@ def fetch_transcript(url, language=None):
     that cluster on non-English videos. Falls back to LANG when the API
     didn't report a language.
 
+    The API reports BCP-47 codes like "fr-FR", but yt-dlp's caption track
+    codes are bare ("fr", "fr-orig") — matching the raw API value against
+    those finds nothing and silently returns an empty transcript. So we
+    strip the region suffix and anchor the match to the exact base code,
+    which also avoids incidentally picking up "fr-orig" alongside "fr".
+
     Raises TranscriptRateLimited if every attempt was rejected with a 429 —
     callers should leave the item untouched so it's retried on the next run,
     rather than finalizing a note with a permanently-missing transcript.
     """
-    sub_langs = language if language else LANG
+    if language:
+        base_lang = language.split("-")[0]
+        sub_langs = f"^{base_lang}$"
+    else:
+        sub_langs = LANG
     delays = list(TRANSCRIPT_RETRY_DELAYS) + [None]  # None = last attempt, no more retries
     for attempt, delay_after_failure in enumerate(delays):
         with tempfile.TemporaryDirectory() as tmp:
