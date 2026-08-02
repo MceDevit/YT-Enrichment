@@ -24,7 +24,12 @@ import requests
 # Model names change over time — confirm current strings at
 # https://docs.claude.com/en/docs/about-claude/models
 CLAUDE_MODEL = "claude-sonnet-5"
-CLAUDE_MAX_TOKENS = 4096
+# Cleaned output is roughly the same length as the input transcript (the
+# prompt forbids shortening), so this needs to comfortably cover a long
+# video's transcript, not just a short reply. 4096 was too tight — it cut
+# a ~15min video off mid-sentence with no error, since the API just stops
+# at the token cap and returns a normal 200 response.
+CLAUDE_MAX_TOKENS = 16000
 
 REFORMAT_PROMPT = """You are cleaning up a raw auto-generated YouTube transcript.
 
@@ -74,7 +79,12 @@ def reformat_transcript(raw_transcript, model=CLAUDE_MODEL):
             timeout=120,
         )
         resp.raise_for_status()
-        blocks = resp.json().get("content", [])
+        data = resp.json()
+        if data.get("stop_reason") == "max_tokens":
+            print(f"  ! transcript reformat hit the {CLAUDE_MAX_TOKENS}-token cap and was "
+                  "truncated; keeping the raw transcript instead", file=sys.stderr)
+            return ""
+        blocks = data.get("content", [])
         return "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
     except Exception as e:
         print(f"  ! transcript reformat failed: {e}", file=sys.stderr)

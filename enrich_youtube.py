@@ -70,7 +70,8 @@ USE_CLAUDE  = False                         # True to add an AI summary
 # https://docs.claude.com/en/docs/about-claude/models
 CLAUDE_MODEL = "claude-sonnet-5"            # used for the summary + verdict
 REFORMAT_MODEL = "claude-sonnet-5"          # used for transcript cleanup
-CLAUDE_MAX_TOKENS = 700
+CLAUDE_MAX_TOKENS = 1500                    # 700 was too tight — hit the cap on an
+                                              # ordinary 15min video and dropped the verdict
 # -----------------------------------------------------------------------------
 
 YT_RE = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?[^\s)]+|shorts/[\w-]+)|youtu\.be/[\w-]+)")
@@ -253,8 +254,22 @@ def claude_summary(title, transcript, focus=None):
             timeout=60,
         )
         resp.raise_for_status()
-        blocks = resp.json().get("content", [])
-        return "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+        data = resp.json()
+        blocks = data.get("content", [])
+        text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+        if data.get("stop_reason") == "max_tokens":
+            # The VERDICT line is appended at the very end of the response, so a
+            # truncated response is likely to have cut it off mid-sentence rather
+            # than dropped it cleanly — VERDICT_RE would still match that partial
+            # fragment and extract_verdict() would show a cut-off callout as if it
+            # were a real verdict. Strip any trailing (possibly partial) VERDICT
+            # line so no callout is shown at all rather than a broken one.
+            print(f"  ! summary hit the {CLAUDE_MAX_TOKENS}-token cap; dropping any "
+                  "partial verdict line", file=sys.stderr)
+            text = re.sub(r"\n?[\s>*•\-]*VERDICT:.*$", "", text,
+                           flags=re.IGNORECASE | re.DOTALL).strip()
+            text += "\n\n_(summary truncated — hit the token limit before the verdict)_"
+        return text
     except Exception as e:
         print(f"  ! summary failed: {e}", file=sys.stderr)
         return ""
