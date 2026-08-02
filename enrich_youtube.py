@@ -56,6 +56,9 @@ def _load_vault():
 VAULT       = _load_vault()                  # <-- your vault root, configured in vault_path.txt
 INBOX       = VAULT                          # new note files land directly in the vault root
 REVIEWED    = VAULT / "Reviewed"
+CLIPPINGS   = VAULT / "Clippings"            # Obsidian Web Clipper's output folder — also scanned,
+                                              # since it can capture YouTube notes with their own
+                                              # transcript already attached (see extract_existing_transcript)
 LINKS_FILE  = INBOX / "_links.md"          # optional: one URL per line, only used if present
 LANG        = "en,fr"                       # fallback transcript language(s) when the video's own
                                               # default audio language isn't reported by the API
@@ -74,7 +77,7 @@ CLAUDE_MAX_TOKENS = 1500                    # 700 was too tight — hit the cap 
                                               # ordinary 15min video and dropped the verdict
 # -----------------------------------------------------------------------------
 
-YT_RE = re.compile(r"https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?[^\s)]+|shorts/[\w-]+)|youtu\.be/[\w-]+)")
+YT_RE = re.compile(r'https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?[^\s)"\']+|shorts/[\w-]+)|youtu\.be/[\w-]+)')
 VIDEO_ID_RE = re.compile(r"(?:youtu\.be/|watch\?v=|shorts/)([\w-]+)")
 DURATION_RE = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?")
 
@@ -378,7 +381,8 @@ def extract_existing_transcript(text):
 
 
 def collect_urls():
-    """Yield (url, source_path_or_None). Sources: _links.md lines, and .md notes."""
+    """Yield (url, source_path_or_None). Sources: _links.md lines, .md notes in the
+    inbox, and .md notes in Clippings/ (Obsidian Web Clipper's output folder)."""
     seen = set()
 
     # 1) queue file: one URL per line
@@ -400,6 +404,19 @@ def collect_urls():
         if m and m.group(0) not in seen:
             seen.add(m.group(0))
             yield m.group(0), note
+
+    # 3) Web Clipper notes in Clippings/ — same idea, but these never carry our
+    # own `processed: true` frontmatter (Web Clipper writes its own frontmatter
+    # shape: `source:` instead of `url:`, `tags: [clippings]`), so there's no
+    # already_processed() check here — a Clippings note is consumed and deleted
+    # by main() the same way an inbox stub is, so it only gets picked up once.
+    if CLIPPINGS.exists():
+        for note in sorted(CLIPPINGS.glob("*.md")):
+            text = note.read_text(encoding="utf-8")
+            m = YT_RE.search(text)
+            if m and m.group(0) not in seen:
+                seen.add(m.group(0))
+                yield m.group(0), note
 
 
 def main(focus_getter=None):
