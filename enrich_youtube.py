@@ -244,8 +244,8 @@ def claude_summary(title, transcript, focus=None, language=None):
         "and why or why not.\n\n"
         "Be decisive. Default to Yes or No — only use Maybe if the video is a genuine "
         "toss-up (e.g. good content but a format you may not enjoy). Don't use Maybe just to "
-        "hedge. If the video is mostly filler, hype, opinion without substance, or the "
-        "summary above already captures everything of value so the full video adds little, "
+        "hedge. If the video is mostly filler, hype, opinion without substance, or this "
+        "summary already captures everything of value so the full video adds little, "
         "say No plainly and say why. Be critical — most videos are not worth watching in "
         "full even if they're fine to summarize.\n\n"
         "Keep each bullet tight — one line where possible. No preamble, no restating the title.\n\n"
@@ -476,7 +476,7 @@ def main(focus_getter=None):
                 transcript = fetch_transcript(url, language=meta.get("language"))
 
             if transcript:
-                if USE_CLAUDE:
+                if USE_CLAUDE and not existing_transcript:
                     cleaned = reformat_transcript(transcript, model=REFORMAT_MODEL)
                     if cleaned:
                         transcript = cleaned
