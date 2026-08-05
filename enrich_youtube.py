@@ -209,7 +209,7 @@ def fmt_duration(seconds):
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
-def claude_summary(title, transcript, focus=None):
+def claude_summary(title, transcript, focus=None, language=None):
     if not (USE_CLAUDE and transcript):
         return ""
     if requests is None:
@@ -220,9 +220,21 @@ def claude_summary(title, transcript, focus=None):
         print("  ! ANTHROPIC_API_KEY not set; skipping summary", file=sys.stderr)
         return ""
     focus_line = f" Pay particular attention to: {focus}.\n\n" if focus else "\n\n"
+    # French-language videos get a French summary/verdict — the VERDICT:
+    # prefix itself stays in English (extract_verdict/VERDICT_RE match on
+    # it literally), only the leading yes/no/maybe word and reason after it
+    # switch language, since verdict_callout() maps both.
+    is_french = bool(language) and language.split("-")[0].lower() == "fr"
+    language_line = (
+        "Write the summary bullets and the verdict reason in French, since this "
+        "video is in French. Keep the literal 'VERDICT: ' prefix in English, but "
+        "follow it with Oui/Non/Peut-être and a French reason "
+        "(e.g. 'VERDICT: Oui — raison').\n\n"
+        if is_french else ""
+    )
     prompt = (
         f'Summarize this YouTube video titled "{title}" in 4-6 short, tight bullet points.'
-        + focus_line +
+        + focus_line + language_line +
         "Prioritize, in this order of importance:\n"
         "1. Technical takeaways — tools, techniques, code patterns, or concrete methods shown.\n"
         "2. Actionable steps I could apply myself.\n"
@@ -301,8 +313,11 @@ def sanitize(name):
     return re.sub(r"\s+", " ", name).strip()[:120] or "video"
 
 
-VERDICT_CALLOUT_RE = re.compile(r"^\s*(yes|maybe|no)\b", re.IGNORECASE)
-VERDICT_CALLOUTS = {"yes": "success", "maybe": "warning", "no": "danger"}
+VERDICT_CALLOUT_RE = re.compile(r"^\s*(yes|maybe|no|oui|peut-être|non)\b", re.IGNORECASE)
+VERDICT_CALLOUTS = {
+    "yes": "success", "maybe": "warning", "no": "danger",
+    "oui": "success", "peut-être": "warning", "non": "danger",
+}
 
 
 def verdict_callout(verdict):
@@ -468,7 +483,7 @@ def main(focus_getter=None):
                         reformatted = True
                 transcript_done_at = datetime.now().strftime("%Y-%m-%d %H:%M")
             focus = focus_getter(meta) if focus_getter else None
-            summary = claude_summary(meta["title"], transcript, focus=focus)
+            summary = claude_summary(meta["title"], transcript, focus=focus, language=meta.get("language"))
             summarized = bool(summary)
             verdict, summary = extract_verdict(summary) if summary else (None, summary)
             body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict,
