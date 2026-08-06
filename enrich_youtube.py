@@ -42,11 +42,18 @@ VAULT_PATH_FILE = Path(__file__).resolve().parent / "vault_path.txt"
 
 
 def _load_vault():
+    # The env var lets the module be imported without a configured vault —
+    # test_enrich.py sets it, since vault_path.txt is gitignored and a fresh
+    # clone would otherwise fail at import time and be unable to run the tests.
+    override = os.environ.get("YT_ENRICH_VAULT")
+    if override:
+        return Path(override).expanduser()
     if not VAULT_PATH_FILE.exists():
         raise RuntimeError(
             f"No vault configured — create {VAULT_PATH_FILE.name} next to this script "
             "with your vault's full path on one line, e.g.:\n"
-            "  ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/MyVault"
+            "  ~/Library/Mobile Documents/iCloud~md~obsidian/Documents/MyVault\n"
+            "(or set YT_ENRICH_VAULT to override it for one run)"
         )
     raw = VAULT_PATH_FILE.read_text(encoding="utf-8").strip()
     if not raw:

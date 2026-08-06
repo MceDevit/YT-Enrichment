@@ -17,6 +17,7 @@ comments) or a tuned threshold that would otherwise drift unnoticed.
 import argparse
 import contextlib
 import io
+import os
 import tempfile
 import unittest
 from datetime import date
@@ -25,11 +26,17 @@ from unittest import mock
 
 import requests
 
-import claude_api
-import enrich_youtube as core
-import enrich_youtube_auto as auto
-import reformat_transcript as rt
-import reprocess
+# enrich_youtube resolves the vault at import time and raises without one.
+# vault_path.txt is gitignored, so on a fresh clone that would stop the suite
+# from running at all — point it somewhere harmless before importing. Nothing
+# here writes to it; the filesystem tests use their own temp dirs.
+os.environ.setdefault("YT_ENRICH_VAULT", tempfile.gettempdir() + "/yt-enrich-test-vault")
+
+import claude_api  # noqa: E402
+import enrich_youtube as core  # noqa: E402
+import enrich_youtube_auto as auto  # noqa: E402
+import reformat_transcript as rt  # noqa: E402
+import reprocess  # noqa: E402
 
 # Realistic prose samples for the language checks. These need to be long enough
 # to clear detect_language()'s 30-word floor and function-word-density check.
