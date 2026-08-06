@@ -42,6 +42,8 @@ Rules:
 - Do NOT summarize, shorten, or omit any actual content/ideas.
 - Do NOT add commentary, headers, or bullet points — just clean prose.
 - Preserve the speaker's original wording and meaning as closely as possible.
+- Do NOT translate. Keep the exact same language as the raw transcript below,
+  even if it's not English.
 
 Raw transcript:
 {transcript}
