@@ -37,6 +37,8 @@ Rules:
 - Remove filler words (um, uh, you know, like) ONLY when they add no meaning.
 - Add proper punctuation and capitalization.
 - Break the text into natural paragraphs based on topic shifts.
+- Strip any inline timestamp markers (e.g. "0:00", "**1:23:45**", "12:34 ·") —
+  they're caption metadata, not spoken content.
 - Do NOT summarize, shorten, or omit any actual content/ideas.
 - Do NOT add commentary, headers, or bullet points — just clean prose.
 - Preserve the speaker's original wording and meaning as closely as possible.

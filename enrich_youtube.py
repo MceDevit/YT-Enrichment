@@ -406,6 +406,28 @@ def extract_existing_transcript(text):
     return content
 
 
+TIMESTAMP_MARKER_RE = re.compile(r"\*\*\d{1,2}:\d{2}(?::\d{2})?\*\*\s*[·•]")
+
+
+def looks_raw(transcript):
+    """Heuristic: does an existing transcript look like unedited auto-captions
+    (bold timestamp markers like '**0:00** ·', or near-zero punctuation) rather
+    than already-clean prose someone deliberately pasted in? Existing
+    transcripts are normally left untouched (see main()), but a raw one still
+    needs reformat_transcript() cleanup — otherwise it's stuck low-quality
+    forever since nothing ever re-fetches it.
+    """
+    if not transcript:
+        return False
+    if TIMESTAMP_MARKER_RE.search(transcript):
+        return True
+    words = transcript.split()
+    if len(words) < 20:
+        return False
+    sentence_enders = transcript.count(".") + transcript.count("!") + transcript.count("?")
+    return sentence_enders / len(words) < 0.02
+
+
 def collect_urls():
     """Yield (url, source_path_or_None). Sources: _links.md lines, .md notes in the
     inbox, and .md notes in Clippings/ (Obsidian Web Clipper's output folder)."""
@@ -477,7 +499,11 @@ def main(focus_getter=None):
                 existing_transcript = extract_existing_transcript(src.read_text(encoding="utf-8"))
 
             if existing_transcript:
-                print(f"  (transcript already in the note — using it, skipping fetch)")
+                if looks_raw(existing_transcript):
+                    print(f"  (transcript already in the note, but looks like raw "
+                          "auto-captions — cleaning it up)")
+                else:
+                    print(f"  (transcript already in the note — using it, skipping fetch)")
                 transcript = existing_transcript
             elif meta["duration_seconds"] > MAX_TRANSCRIPT_SECONDS:
                 print(f"  (skipping transcript — {meta['duration']} exceeds "
@@ -488,7 +514,7 @@ def main(focus_getter=None):
                 transcript = fetch_transcript(url, language=meta.get("language"))
 
             if transcript:
-                if USE_CLAUDE and not existing_transcript:
+                if USE_CLAUDE and (not existing_transcript or looks_raw(existing_transcript)):
                     cleaned = reformat_transcript(transcript, model=REFORMAT_MODEL)
                     if cleaned:
                         transcript = cleaned
