@@ -34,6 +34,7 @@ from pathlib import Path
 
 import requests
 
+from claude_api import ClaudeError, call_claude
 from reformat_transcript import reformat_transcript
 
 # ------------------------------------------------------------------ config ----
@@ -64,6 +65,7 @@ LANG        = "en,fr"                       # fallback transcript language(s) wh
                                               # default audio language isn't reported by the API
 MAX_TRANSCRIPT_SECONDS = 3600                # skip transcript fetch for videos longer than this (movies, etc.)
 STATUS_DONE = "reviewed"                    # frontmatter status after enrich
+STATUS_ATTENTION = "needs-attention"        # ...unless something degraded; search this in Obsidian
 MOVE_TO_REVIEWED = True                     # False = keep enriched notes in Inbox
 
 YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY")  # required — see module docstring
@@ -223,15 +225,13 @@ SHORT_SUMMARY_INSTRUCTIONS = ""
 
 
 def claude_summary(title, transcript, focus=None, language=None, is_short=False):
-    if not (USE_CLAUDE and transcript):
-        return ""
-    if requests is None:
-        print("  ! requests not installed; skipping summary", file=sys.stderr)
-        return ""
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        print("  ! ANTHROPIC_API_KEY not set; skipping summary", file=sys.stderr)
-        return ""
+    """Returns (summary_text, problem). `problem` is None when the summary is
+    trustworthy, else a short string describing how it degraded — the caller
+    surfaces it on the note rather than silently writing a partial summary."""
+    if not USE_CLAUDE:
+        return "", None
+    if not transcript:
+        return "", "no transcript to summarize"
     focus_line = f" Pay particular attention to: {focus}.\n\n" if focus else "\n\n"
     # French-language videos get a French summary/verdict — the VERDICT:
     # prefix itself stays in English (extract_verdict/VERDICT_RE match on
@@ -263,40 +263,32 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
             "Transcript:\n\n" + transcript[:100_000]
         )
     try:
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": CLAUDE_MODEL,
-                "max_tokens": CLAUDE_MAX_TOKENS,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=60,
+        text, stop_reason = call_claude(
+            prompt,
+            model=CLAUDE_MODEL,
+            max_tokens=CLAUDE_MAX_TOKENS,
+            timeout=120,
+            label="summary",
         )
-        resp.raise_for_status()
-        data = resp.json()
-        blocks = data.get("content", [])
-        text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
-        if data.get("stop_reason") == "max_tokens":
-            # The VERDICT line is appended at the very end of the response, so a
-            # truncated response is likely to have cut it off mid-sentence rather
-            # than dropped it cleanly — VERDICT_RE would still match that partial
-            # fragment and extract_verdict() would show a cut-off callout as if it
-            # were a real verdict. Strip any trailing (possibly partial) VERDICT
-            # line so no callout is shown at all rather than a broken one.
-            print(f"  ! summary hit the {CLAUDE_MAX_TOKENS}-token cap; dropping any "
-                  "partial verdict line", file=sys.stderr)
-            text = re.sub(r"\n?[\s>*•\-]*VERDICT:.*$", "", text,
-                           flags=re.IGNORECASE | re.DOTALL).strip()
-            text += "\n\n_(summary truncated — hit the token limit before the verdict)_"
-        return text
-    except Exception as e:
-        print(f"  ! summary failed: {e}", file=sys.stderr)
-        return ""
+    except ClaudeError as e:
+        print(f"  ! {e}", file=sys.stderr)
+        return "", str(e)
+
+    if stop_reason == "max_tokens":
+        # The VERDICT line is appended at the very end of the response, so a
+        # truncated response is likely to have cut it off mid-sentence rather
+        # than dropped it cleanly — VERDICT_RE would still match that partial
+        # fragment and extract_verdict() would show a cut-off callout as if it
+        # were a real verdict. Strip any trailing (possibly partial) VERDICT
+        # line so no callout is shown at all rather than a broken one.
+        problem = f"summary hit the {CLAUDE_MAX_TOKENS}-token cap before finishing"
+        print(f"  ! {problem}; dropping any partial verdict line", file=sys.stderr)
+        text = re.sub(r"\n?[\s>*•\-]*VERDICT:.*$", "", text,
+                       flags=re.IGNORECASE | re.DOTALL).strip()
+        text += "\n\n_(summary truncated — hit the token limit before the verdict)_"
+        return text, problem
+
+    return text, None
 
 
 VERDICT_RE = re.compile(r"^[\s>*•\-]*VERDICT:\s*(.+?)\**\s*$", re.MULTILINE | re.IGNORECASE)
@@ -337,7 +329,8 @@ def verdict_callout(verdict):
 
 
 def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
-                reformatted=False, summarized=False, transcript_done_at=None, is_short=False):
+                reformatted=False, summarized=False, transcript_done_at=None, is_short=False,
+                warnings=None):
     fm = [
         "---",
         f'title: "{meta["title"].replace(chr(34), chr(39))}"',
@@ -347,7 +340,7 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
         f'duration: {meta["duration"]}',
         f"date_watched: {date.today().isoformat()}",
         "tags: [youtube]",
-        f"status: {STATUS_DONE}",
+        f"status: {STATUS_ATTENTION if warnings else STATUS_DONE}",
         "processed: true",
     ]
     if transcript_done_at:
@@ -357,6 +350,13 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
     if summarized:
         fm.append(f"model_summary: {CLAUDE_MODEL}")
     fm += ["---", ""]
+    if warnings:
+        # Runs happen headless (cron / iPhone Shortcut over SSH) where nobody
+        # reads stderr, so a degraded note has to say so in the vault itself.
+        # Find them later with an Obsidian search for status:needs-attention.
+        fm.append("> [!warning] Enrichment issues — this note may be incomplete")
+        fm += [f"> - {w}" for w in warnings]
+        fm.append("")
     if verdict:
         fm += [f"> [!{verdict_callout(verdict)}] Worth watching? {verdict}", ""]
     elif is_short:
@@ -493,6 +493,8 @@ def main(focus_getter=None):
             transcript_note = None
             reformatted = False
             transcript_done_at = None
+            transcript_skipped_on_purpose = False
+            warnings = []
 
             existing_transcript = ""
             if src is not None:
@@ -510,31 +512,48 @@ def main(focus_getter=None):
                       f"{MAX_TRANSCRIPT_SECONDS // 60}min limit)")
                 transcript = ""
                 transcript_note = "_Transcript skipped — video exceeds the length limit._"
+                # Deliberate, per max_transcript_minutes — not a degradation,
+                # so this note stays `reviewed` rather than needs-attention.
+                transcript_skipped_on_purpose = True
             else:
                 transcript = fetch_transcript(url, language=meta.get("language"))
+                if not transcript:
+                    warnings.append("no captions available for this video")
 
             if transcript:
                 if USE_CLAUDE and (not existing_transcript or looks_raw(existing_transcript)):
-                    cleaned = reformat_transcript(transcript, model=REFORMAT_MODEL)
+                    cleaned, problem = reformat_transcript(transcript, model=REFORMAT_MODEL)
                     if cleaned:
                         transcript = cleaned
                         reformatted = True
+                    elif problem:
+                        warnings.append(f"transcript left as raw captions — {problem}")
                 transcript_done_at = datetime.now().strftime("%Y-%m-%d %H:%M")
             focus = focus_getter(meta) if focus_getter else None
-            summary = claude_summary(meta["title"], transcript, focus=focus,
-                                      language=meta.get("language"), is_short=is_short)
+            summary, problem = claude_summary(meta["title"], transcript, focus=focus,
+                                               language=meta.get("language"), is_short=is_short)
+            # Skip the summary's own complaint when there was never a transcript
+            # to work from: either that was deliberate (length limit), or the
+            # missing captions are already recorded above — no need to say it twice.
+            if problem and not (not transcript and (transcript_skipped_on_purpose or warnings)):
+                warnings.append(problem)
             summarized = bool(summary)
             verdict, summary = extract_verdict(summary) if summary else (None, summary)
+            if summary and not verdict and not is_short:
+                warnings.append("no verdict line in the summary")
             body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict,
                                reformatted=reformatted, summarized=summarized,
-                               transcript_done_at=transcript_done_at, is_short=is_short)
+                               transcript_done_at=transcript_done_at, is_short=is_short,
+                               warnings=warnings)
 
             dest_dir = REVIEWED if MOVE_TO_REVIEWED else INBOX
             dest = dest_dir / f"{sanitize(meta['title'])}.md"
             dest.write_text(body, encoding="utf-8")
             print(f"  → {dest.relative_to(VAULT)}  "
                   f"({'summary, ' if summary else ''}"
-                  f"{len(transcript.split())} transcript words)")
+                  f"{len(transcript.split())} transcript words)"
+                  + (f"  [!] {len(warnings)} issue(s) — flagged needs-attention"
+                     if warnings else ""))
 
             # clean up the source stub if it lived in the inbox
             if src and src.exists() and src.resolve() != dest.resolve():

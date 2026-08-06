@@ -27,6 +27,11 @@ python3 watch_channels.py
 
 # same channel scan, but via a local approve/skip webpage at 127.0.0.1:8743
 python3 review_videos.py
+
+# push already-enriched notes back through the pipeline (prompt/model changes,
+# or repairing notes flagged status: needs-attention)
+python3 reprocess.py --flagged --list     # --list is a safe dry run
+python3 reprocess.py "partial name" --run
 ```
 
 Manual smoke test for transcript cleanup:
@@ -91,18 +96,47 @@ wc`) and adds a stdlib-only local HTTP server (no Flask) serving an
 approve/skip page, so accepting a video just writes the same stub note
 `watch_channels.py` would have written automatically.
 
-**`reformat_transcript.py`** is a standalone Claude call (plain `requests`
-POST to the Messages API, not the `anthropic` SDK — kept as the project's
-only non-stdlib dependency alongside `requests` itself) that turns a raw
-run-on yt-dlp transcript into punctuated prose. Imported by
-`enrich_youtube.py`, only invoked when `USE_CLAUDE` is on.
+**`reformat_transcript.py`** turns a raw run-on yt-dlp transcript into
+punctuated prose. Imported by `enrich_youtube.py`, only invoked when
+`USE_CLAUDE` is on. Returns a `(text, problem)` pair, not a bare string: a
+reformat can come back plausible-but-wrong (truncated at the token cap, or
+silently translated out of the source language — both have happened), so
+`check_reformat()` compares word-count ratio and a coarse stopword-based
+`detect_language()` fingerprint against the input, and the caller keeps the
+raw captions and flags the note rather than writing the damaged version.
+
+**`claude_api.py`** owns the actual Anthropic Messages API call for both
+`claude_summary()` and `reformat_transcript()` (plain `requests` POST, not
+the `anthropic` SDK — `requests` stays the only non-stdlib dependency).
+`call_claude()` retries timeouts/429/5xx with backoff and fails fast on 4xx
+(bad key, unknown model), returning `(text, stop_reason)` so callers can
+detect `max_tokens` truncation. This exists because a single un-retried
+timeout used to silently drop a transcript cleanup and keep the raw captions.
+
+**`reprocess.py`** flips enriched notes back to `processed: false` and moves
+them to the vault root so the next run rebuilds them — by filename, `--url`,
+`--flagged` (i.e. `status: needs-attention`), or `--all`. Only `processed:`
+and optionally the transcript (`--refetch`) are touched, since `build_note()`
+regenerates the whole note anyway.
 
 ### Key invariants
 
 - **Idempotency**: a note with `processed: true` in frontmatter is never
   re-touched by `enrich_youtube.py` (`already_processed()`). Reprocessing
-  means manually clearing that flag and moving the note back to the vault
-  root — the script only scans the root, not `Reviewed/`.
+  means clearing that flag and moving the note back to the vault root — the
+  script only scans the root, not `Reviewed/`. `reprocess.py` automates
+  exactly that.
+- **No silent degradation.** This pipeline runs headless (cron, or an iPhone
+  Shortcut over SSH) where nobody reads stderr, so anything that produces a
+  worse-but-still-valid note must be surfaced *in the vault*: `main()`
+  accumulates a `warnings` list per video, and `build_note()` turns a
+  non-empty list into `status: needs-attention` plus a `[!warning]` callout
+  listing the reasons. Find them with an Obsidian search for
+  `status:needs-attention`, repair with `reprocess.py --flagged`. When adding
+  a step that can partially fail, append to `warnings` rather than only
+  printing — several long-lived bugs here (silent translation, silent
+  truncation, silent reformat timeouts) survived precisely because they only
+  ever wrote to stderr.
 - **429 handling**: `fetch_transcript()` raises `TranscriptRateLimited`
   after exhausting `TRANSCRIPT_RETRY_DELAYS` (set from
   `transcript_retries` in the settings file). The caller in `main()`
