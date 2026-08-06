@@ -27,13 +27,15 @@ Settings file format:
     focus: ...
 
     ## Summary Prompt
-    <optional; overrides the editorial instructions in the summary prompt
-    for regular (non-Short) videos — bullet count, prioritization, verdict
-    criteria, tone, etc. Leave the section out to keep the built-in default.>
+    <the editorial instructions for the summary prompt on regular (non-Short)
+    videos — bullet count, prioritization, verdict criteria, tone, etc. This
+    is the only place this text lives; enrich_youtube.py has no built-in
+    default. Leave the section out (or empty) and summaries fall back to a
+    bare bullet/VERDICT framing with no editorial guidance.>
 
     ## Short Summary Prompt
-    <optional; same idea but for YouTube Shorts (no verdict is requested
-    for Shorts either way).>
+    <same idea but for YouTube Shorts (no verdict is ever requested for
+    Shorts regardless of what's here).>
 
 First matching topic section (in file order, top to bottom, excluding
 Default, Summary Prompt, and Short Summary Prompt) wins. Default is used if
@@ -140,10 +142,8 @@ def main():
         core.CLAUDE_MODEL = model_summary
     if model_reformat:
         core.REFORMAT_MODEL = model_reformat
-    if summary_instructions:
-        core.SUMMARY_INSTRUCTIONS = summary_instructions
-    if short_summary_instructions:
-        core.SHORT_SUMMARY_INSTRUCTIONS = short_summary_instructions
+    core.SUMMARY_INSTRUCTIONS = summary_instructions or ""
+    core.SHORT_SUMMARY_INSTRUCTIONS = short_summary_instructions or ""
 
     print(f"Settings loaded from {SETTINGS_FILE.name}")
     print(f"Summaries: {'ON' if use_claude else 'OFF'}")
@@ -151,10 +151,12 @@ def main():
     print(f"Transcript rate-limit retries: {len(core.TRANSCRIPT_RETRY_DELAYS)}")
     print(f"Summary model: {core.CLAUDE_MODEL}")
     print(f"Reformat model: {core.REFORMAT_MODEL}")
-    if summary_instructions:
-        print("Summary prompt: overridden from settings")
-    if short_summary_instructions:
-        print("Short summary prompt: overridden from settings")
+    if use_claude and not summary_instructions:
+        print('  ! no "## Summary Prompt" section in settings — summaries will use '
+              "minimal bullet/VERDICT framing only, no editorial guidance")
+    if use_claude and not short_summary_instructions:
+        print('  ! no "## Short Summary Prompt" section in settings — Shorts summaries '
+              "will use minimal bullet framing only")
     if use_claude:
         names = ", ".join(s["name"] for s in sections if s["name"].lower() != "default")
         print(f"Topics configured: {names or '(none — Default only)'}\n")
