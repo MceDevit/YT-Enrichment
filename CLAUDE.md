@@ -12,8 +12,21 @@ the user's Mac against their own vault and API keys.
 
 ## Running / testing
 
-There is no build step, package manifest, or test suite — this is a handful
-of standalone scripts run directly with `python3`.
+There is no build step or package manifest — this is a handful of standalone
+scripts run directly with `python3`.
+
+```bash
+python3 -m unittest test_enrich -v     # or: python3 test_enrich.py
+```
+
+`test_enrich.py` covers the pure logic — verdict parsing, callout colours,
+`looks_raw()`, `detect_language()`/`check_reformat()`, settings parsing,
+`build_note()`'s warning path, `call_claude()`'s retry rules, and
+`reprocess.py`'s selection/requeue. Stdlib `unittest` on purpose (no pytest
+dependency); no network, and the filesystem tests build a throwaway vault in
+a temp dir rather than touching the real one. Most cases correspond to a bug
+that actually shipped — the comments say which — so prefer adding a failing
+case there over re-testing by hand against a real video.
 
 ```bash
 # the main pipeline (reads _youtube_settings.md from the vault, no prompts)
@@ -34,7 +47,9 @@ python3 reprocess.py --flagged --list     # --list is a safe dry run
 python3 reprocess.py "partial name" --run
 ```
 
-Manual smoke test for transcript cleanup:
+Manual smoke test for transcript cleanup — unlike `test_enrich.py`, this one
+makes a real billed API call, so it's the way to check the model/key/prompt
+end to end rather than just the surrounding logic:
 ```bash
 python3 reformat_transcript.py   # runs the __main__ sample at the bottom of the file
 ```
