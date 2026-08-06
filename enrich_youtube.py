@@ -72,7 +72,7 @@ USE_CLAUDE  = False                         # True to add an AI summary
 # Model names change over time — confirm current strings at
 # https://docs.claude.com/en/docs/about-claude/models
 CLAUDE_MODEL = "claude-sonnet-5"            # used for the summary + verdict
-REFORMAT_MODEL = "claude-sonnet-5"          # used for transcript cleanup
+REFORMAT_MODEL = "claude-haiku-4-5-20251001"  # used for transcript cleanup
 CLAUDE_MAX_TOKENS = 1500                    # 700 was too tight — hit the cap on an
                                               # ordinary 15min video and dropped the verdict
 # -----------------------------------------------------------------------------
