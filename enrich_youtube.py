@@ -360,7 +360,7 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
     if verdict:
         fm += [f"> [!{verdict_callout(verdict)}] Worth watching? {verdict}", ""]
     elif is_short:
-        fm += ["_Short video — no worth-watching verdict needed._", ""]
+        fm += ["> [!info] Short video — no worth-watching verdict needed.", ""]
     if summary:
         fm += ["## Summary", "", summary, ""]
     fm += ["## My notes", "- ", ""]
