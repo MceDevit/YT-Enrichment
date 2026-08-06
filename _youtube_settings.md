@@ -18,3 +18,20 @@ focus: Focus on concrete code patterns, dev tools, and anything directly applica
 ## Guitar / Music
 keywords: guitar, jazz, tarrega, manouche, baden powell, gypsy jazz, music, chord, scale, fretboard
 focus: Focus on technique, repertoire, and practice tips rather than general commentary. Note any specific pieces, chord voicings, or exercises mentioned.
+
+<!--
+Two more optional section headings, left out here so the built-in defaults
+stay active — add them yourself (as real "## " headings, same style as the
+topic sections above) if you want to override the editorial instructions
+used for every summary (separate from the per-topic `focus` above, which
+only adds extra guidance on top):
+
+  - a heading named "Summary Prompt" — its full body replaces the built-in
+    editorial instructions for regular (non-Short) videos: bullet count,
+    prioritization, verdict criteria, tone, etc.
+  - a heading named "Short Summary Prompt" — same idea, for YouTube Shorts.
+    No verdict is ever requested for Shorts regardless of what you put here.
+
+Whatever text goes directly under either heading becomes the entire
+override (not appended to the default — replaces it), so keep it complete.
+-->

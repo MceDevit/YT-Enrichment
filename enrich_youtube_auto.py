@@ -26,8 +26,18 @@ Settings file format:
     keywords: ...
     focus: ...
 
+    ## Summary Prompt
+    <optional; overrides the editorial instructions in the summary prompt
+    for regular (non-Short) videos — bullet count, prioritization, verdict
+    criteria, tone, etc. Leave the section out to keep the built-in default.>
+
+    ## Short Summary Prompt
+    <optional; same idea but for YouTube Shorts (no verdict is requested
+    for Shorts either way).>
+
 First matching topic section (in file order, top to bottom, excluding
-Default) wins. Default is used if nothing matches.
+Default, Summary Prompt, and Short Summary Prompt) wins. Default is used if
+nothing matches.
 """
 
 import re
@@ -45,8 +55,11 @@ SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 TRANSCRIPT_RETRY_DELAYS = (15, 30)  # available backoff steps; transcript_retries picks how many to use
 
 
+PROMPT_SECTIONS = {"summary prompt", "short summary prompt"}
+
+
 def parse_settings(text):
-    """Returns (use_claude: bool, max_transcript_minutes: int|None, transcript_retries: int|None, model_summary: str|None, model_reformat: str|None, sections: list[dict{name, keywords, focus}])."""
+    """Returns (use_claude: bool, max_transcript_minutes: int|None, transcript_retries: int|None, model_summary: str|None, model_reformat: str|None, summary_instructions: str|None, short_summary_instructions: str|None, sections: list[dict{name, keywords, focus}])."""
     use_claude_m = re.search(r"^use_claude:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
     use_claude = bool(use_claude_m and use_claude_m.group(1).lower() in ("yes", "true", "on", "1"))
 
@@ -77,9 +90,20 @@ def parse_settings(text):
         focus_m = re.search(r"^focus:\s*(.+(?:\n(?!\S+:).+)*)", body, re.MULTILINE | re.IGNORECASE)
         focus = focus_m.group(1).strip() if focus_m else ""
 
-        sections.append({"name": name, "keywords": keywords, "focus": focus})
+        sections.append({"name": name, "keywords": keywords, "focus": focus, "body": body})
 
-    return use_claude, max_transcript_minutes, transcript_retries, model_summary, model_reformat, sections
+    def reserved_body(name):
+        body = next((s["body"].strip() for s in sections if s["name"].lower() == name), "")
+        return body or None
+
+    summary_instructions = reserved_body("summary prompt")
+    short_summary_instructions = reserved_body("short summary prompt")
+    # "Default"/topic sections stay in `sections` for make_focus_getter — only
+    # drop the two prompt-override sections, which aren't keyword/focus topics.
+    sections = [s for s in sections if s["name"].lower() not in PROMPT_SECTIONS]
+
+    return (use_claude, max_transcript_minutes, transcript_retries, model_summary, model_reformat,
+            summary_instructions, short_summary_instructions, sections)
 
 
 def make_focus_getter(sections):
@@ -104,7 +128,8 @@ def main():
         return
 
     text = SETTINGS_FILE.read_text(encoding="utf-8")
-    use_claude, max_transcript_minutes, transcript_retries, model_summary, model_reformat, sections = parse_settings(text)
+    (use_claude, max_transcript_minutes, transcript_retries, model_summary, model_reformat,
+     summary_instructions, short_summary_instructions, sections) = parse_settings(text)
 
     core.USE_CLAUDE = use_claude
     if max_transcript_minutes is not None:
@@ -115,6 +140,10 @@ def main():
         core.CLAUDE_MODEL = model_summary
     if model_reformat:
         core.REFORMAT_MODEL = model_reformat
+    if summary_instructions:
+        core.SUMMARY_INSTRUCTIONS = summary_instructions
+    if short_summary_instructions:
+        core.SHORT_SUMMARY_INSTRUCTIONS = short_summary_instructions
 
     print(f"Settings loaded from {SETTINGS_FILE.name}")
     print(f"Summaries: {'ON' if use_claude else 'OFF'}")
@@ -122,6 +151,10 @@ def main():
     print(f"Transcript rate-limit retries: {len(core.TRANSCRIPT_RETRY_DELAYS)}")
     print(f"Summary model: {core.CLAUDE_MODEL}")
     print(f"Reformat model: {core.REFORMAT_MODEL}")
+    if summary_instructions:
+        print("Summary prompt: overridden from settings")
+    if short_summary_instructions:
+        print("Short summary prompt: overridden from settings")
     if use_claude:
         names = ", ".join(s["name"] for s in sections if s["name"].lower() != "default")
         print(f"Topics configured: {names or '(none — Default only)'}\n")

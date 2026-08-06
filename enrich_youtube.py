@@ -209,6 +209,38 @@ def fmt_duration(seconds):
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 
+# Editorial instructions for the summary prompt — overridable from
+# _youtube_settings.md's "## Summary Prompt" / "## Short Summary Prompt"
+# sections (see enrich_youtube_auto.py) without touching this file. The
+# bullet-count/title framing and the VERDICT: formatting requirement stay
+# hardcoded below since extract_verdict()/verdict_callout() parse that
+# literal format — only the editorial guidance here is user-editable.
+SUMMARY_INSTRUCTIONS = (
+    "Prioritize, in this order of importance:\n"
+    "1. Technical takeaways — tools, techniques, code patterns, or concrete methods shown.\n"
+    "2. Actionable steps I could apply myself.\n"
+    "3. Any specific links, tools, libraries, or resources mentioned by name.\n\n"
+    "End with one final bullet: a one-line verdict on whether it's worth watching in full — "
+    "judged against my stated interest if I gave one, otherwise judge generally — "
+    "and why or why not.\n\n"
+    "Be decisive. Default to Yes or No — only use Maybe if the video is a genuine "
+    "toss-up (e.g. good content but a format you may not enjoy). Don't use Maybe just to "
+    "hedge. If the video is mostly filler, hype, opinion without substance, or this "
+    "summary already captures everything of value so the full video adds little, "
+    "say No plainly and say why. Be critical — most videos are not worth watching in "
+    "full even if they're fine to summarize.\n\n"
+    "Keep each bullet tight — one line where possible. No preamble, no restating the title. "
+    "Don't describe the summary's position in the note (e.g. 'above' or 'below') — refer "
+    "to it only as 'this summary'."
+)
+
+SHORT_SUMMARY_INSTRUCTIONS = (
+    "No verdict — don't judge whether it's worth watching, Shorts are short enough "
+    "already. Keep each bullet tight — one line where possible. No preamble, no "
+    "restating the title."
+)
+
+
 def claude_summary(title, transcript, focus=None, language=None, is_short=False):
     if not (USE_CLAUDE and transcript):
         return ""
@@ -238,32 +270,13 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
         prompt = (
             f'Summarize this YouTube Short titled "{title}" in 1-3 short, tight bullet points, '
             "capturing just the core idea or takeaway."
-            + focus_line + language_line +
-            "No verdict — don't judge whether it's worth watching, Shorts are short enough "
-            "already. Keep each bullet tight — one line where possible. No preamble, no "
-            "restating the title.\n\n"
+            + focus_line + language_line + SHORT_SUMMARY_INSTRUCTIONS + "\n\n"
             "Transcript:\n\n" + transcript[:100_000]
         )
     else:
         prompt = (
             f'Summarize this YouTube video titled "{title}" in 4-6 short, tight bullet points.'
-            + focus_line + language_line +
-            "Prioritize, in this order of importance:\n"
-            "1. Technical takeaways — tools, techniques, code patterns, or concrete methods shown.\n"
-            "2. Actionable steps I could apply myself.\n"
-            "3. Any specific links, tools, libraries, or resources mentioned by name.\n\n"
-            "End with one final bullet: a one-line verdict on whether it's worth watching in full — "
-            "judged against my stated interest if I gave one, otherwise judge generally — "
-            "and why or why not.\n\n"
-            "Be decisive. Default to Yes or No — only use Maybe if the video is a genuine "
-            "toss-up (e.g. good content but a format you may not enjoy). Don't use Maybe just to "
-            "hedge. If the video is mostly filler, hype, opinion without substance, or this "
-            "summary already captures everything of value so the full video adds little, "
-            "say No plainly and say why. Be critical — most videos are not worth watching in "
-            "full even if they're fine to summarize.\n\n"
-            "Keep each bullet tight — one line where possible. No preamble, no restating the title. "
-            "Don't describe the summary's position in the note (e.g. 'above' or 'below') — refer "
-            "to it only as 'this summary'.\n\n"
+            + focus_line + language_line + SUMMARY_INSTRUCTIONS + "\n\n"
             "After the bullets, on its own line, repeat just that verdict prefixed with 'VERDICT: ' "
             "(e.g. 'VERDICT: Yes — reason' or 'VERDICT: No — reason' or 'VERDICT: Maybe — reason').\n\n"
             "Transcript:\n\n" + transcript[:100_000]
