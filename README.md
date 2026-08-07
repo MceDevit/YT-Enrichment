@@ -9,8 +9,8 @@ question that actually matters:
 
 Most YouTube-summary tools give you a generic summary. YT Enrich judges
 each video **against goals you define per topic** (in a plain Markdown
-settings file) and puts the verdict in a red callout at the top of the
-note, so you can triage your watch-later pile at a glance.
+settings file) and puts the verdict in a color-coded callout at the top
+of the note, so you can triage your watch-later pile at a glance.
 
 Everything runs locally on your Mac, with your own API keys, into your
 own vault. No accounts, no server, no subscription.
@@ -56,10 +56,23 @@ The verdict callout is color-coded so you can triage at a glance: **Yes**
 - **Per-topic focus** — define topics by keywords in `_youtube_settings.md`;
   each topic gets its own summary focus ("give me the exact prompts",
   "flag hype vs. reproducible how-to", "note chord voicings mentioned").
-- **The verdict** — a red `[!danger]` callout at the top of every note:
-  worth watching in full, or is the summary enough?
+- **The verdict** — a color-coded callout at the top of every note:
+  green/orange/red for Yes/Maybe/No on whether it's worth watching in
+  full. YouTube Shorts get a blue info callout instead — a 30-second
+  video doesn't need a "worth watching?" judgment, just a summary.
+- **French-aware** — a video whose default audio language is French gets
+  its summary and verdict written in French too, not just translated
+  English.
 - **Transcript cleanup** — raw auto-captions are rewritten into readable
-  paragraphs before summarizing.
+  paragraphs before summarizing, with retries on transient API failures
+  and sanity checks (word-count ratio, language match) that keep the raw
+  captions rather than write a truncated or mistranslated transcript.
+- **Nothing fails silently** — this pipeline runs headless (cron, or an
+  SSH-triggered Shortcut with no one watching stderr), so any degraded
+  step — a failed reformat, a truncated summary, missing captions — flips
+  that note to `status: needs-attention` with a callout explaining why,
+  instead of writing a note that looks fine but isn't. Find them with an
+  Obsidian search for `status:needs-attention`, or `python3 dashboard.py`.
 - **Channel watching** — checks channels you've already reviewed for new
   uploads, either auto-queued or via a local approve/skip webpage.
 - **Length cutoff** — videos over `max_transcript_minutes` (default 60)
@@ -95,6 +108,7 @@ The verdict callout is color-coded so you can triage at a glance: **Yes**
 | **`Run_Enrich.command`** | The day-to-day one. Processes every captured link: metadata, transcript, summary, verdict, moves to `Reviewed/`. |
 | **`Run_Watch_Channels.command`** | Auto-queues new uploads from every channel behind your `Reviewed/` notes (first run per channel only sets a baseline). |
 | **`Run_Review_Videos.command`** | Same scan, but opens a local page (`127.0.0.1:8743`) with thumbnails and per-video **Add** / **Skip** buttons. |
+| **`Run_Dashboard.command`** | Read-only status screen: environment, live settings, queue depth, library counts, and anything flagged `needs-attention`. Safe to run any time — no writes, fetches, or API calls. |
 
 Double-click in Finder; they open Terminal and pause at the end so you
 can read the output.
@@ -128,6 +142,13 @@ export YOUTUBE_API_KEY="..."             # Google Cloud Console → enable "YouT
 export ANTHROPIC_API_KEY="sk-ant-..."    # only needed if use_claude: yes
 ```
 
+Sanity-check the install before pointing it at a real video — the test
+suite needs no API keys, no vault, and no network:
+
+```bash
+python3 -m unittest test_enrich
+```
+
 New Anthropic accounts get a small amount of free API credit (no credit
 card, just phone verification) — plenty to try this out before deciding
 whether to add billing. If you'd rather not sign up for anything yet, set
@@ -142,7 +163,7 @@ use_claude: yes
 max_transcript_minutes: 60
 transcript_retries: 0
 model_summary: claude-sonnet-5      # or claude-haiku-4-5-20251001 for faster/cheaper summaries
-model_reformat: claude-sonnet-5     # transcript cleanup model — can differ from model_summary
+model_reformat: claude-haiku-4-5-20251001   # transcript cleanup model — can differ from model_summary
 
 ## Default
 focus: General summary — actionable takeaways, resources mentioned,
@@ -152,13 +173,30 @@ and whether it's worth watching in full.
 keywords: keyword1, keyword2, ...
 focus: What you want the summary (and verdict) to prioritize for
 videos matching these keywords.
+
+## Summary Prompt
+Optional — replaces the built-in editorial instructions for the summary
+(bullet count, prioritization, verdict criteria, tone). Leave the section
+out and summaries fall back to a bare bullet/VERDICT framing with no
+editorial guidance, so once you're using Claude summaries you'll generally
+want this section filled in.
+
+## Short Summary Prompt
+Same idea, for YouTube Shorts specifically — no verdict is ever requested
+for Shorts regardless of what's here (a 30-second video doesn't need a
+"worth watching in full?" judgment).
 ```
 
 `model_summary` and `model_reformat` are independent — e.g. run transcript
 cleanup on the cheaper/faster Haiku while keeping the summary + verdict on
 Sonnet, since verdict judgment tends to benefit more from the stronger model.
-Both default to `claude-sonnet-5` if omitted. Model names change over time —
-confirm current strings at https://docs.claude.com/en/docs/about-claude/models.
+If omitted, `model_summary` defaults to `claude-sonnet-5` and `model_reformat`
+to `claude-haiku-4-5-20251001`. Model names change over time — confirm
+current strings at https://docs.claude.com/en/docs/about-claude/models.
+
+The `## Summary Prompt` / `## Short Summary Prompt` text isn't duplicated
+anywhere in the code — this settings file is the only place it lives, so
+edit it here to change how Claude judges and writes every summary.
 
 Capture on mobile needs nothing extra — Obsidian's Share Sheet target
 creates the stub note. On the Mac, build a small Automator Quick Action
@@ -289,9 +327,10 @@ Shortcuts runs the script silently and shows nothing on screen.
 - **Transcript fetching uses yt-dlp**, which scrapes YouTube's internal
   caption endpoint — there is no official free API for other people's
   captions, so this is the trade-off the whole category lives with.
-- **Reprocessing a note** means moving it out of `Reviewed/` back to the
-  vault root and deleting the `processed: true` frontmatter line — the
-  script only scans the vault root.
+- **Reprocessing a note** (after tuning the summary prompt, switching
+  models, or fixing a flagged note) means moving it out of `Reviewed/`
+  back to the vault root and clearing the `processed: true` frontmatter
+  line — `reprocess.py` automates this: `python3 reprocess.py --flagged --run`.
 - **macOS-centric** — the Python scripts are portable, but the launchers
   and capture Quick Action are Mac-only.
 - The `_youtube_settings.md` in this repo is a **template**; the copy in
@@ -301,7 +340,11 @@ Shortcuts runs the script silently and shows nothing on screen.
 
 - `enrich_youtube.py` — core engine (imported by everything else)
 - `enrich_youtube_auto.py` — reads `_youtube_settings.md`, runs the pipeline with no prompts (what `Run_Enrich.command` calls)
-- `reformat_transcript.py` — transcript → readable prose (when `use_claude: yes`)
+- `reformat_transcript.py` — transcript → readable prose (when `use_claude: yes`), with truncation/translation sanity checks
+- `claude_api.py` — shared Anthropic API call with retry/backoff, used by both the summary and the reformat step
 - `watch_channels.py` / `review_videos.py` — channel watching engines
+- `dashboard.py` — read-only status screen (`python3 dashboard.py`, or `Run_Dashboard.command`)
+- `reprocess.py` — rebuild already-enriched notes: by name, `--url`, `--flagged`, or `--all`
+- `test_enrich.py` — unit tests for the pure logic, no network/vault needed (`python3 -m unittest test_enrich`)
 - `_youtube_settings.md` — settings **template** (live copy goes in your vault)
 - `vault_path.txt.example` — copy to `vault_path.txt`, point at your vault
