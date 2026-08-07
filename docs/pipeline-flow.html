@@ -1,0 +1,720 @@
+<title>YT Enrich — pipeline flow</title>
+<style>
+  :root {
+    --paper: #f4f5f9;
+    --paper-raised: #ffffff;
+    --ink: #1a1d27;
+    --ink-soft: #4b4f5e;
+    --ink-faint: #8b8fa3;
+    --line: #d8dae4;
+    --line-soft: #e6e7ef;
+    --accent: #6e56cf;
+    --accent-soft: #efeafc;
+    --accent-ink: #4d3aa8;
+    --ok: #2f9e64;
+    --ok-soft: #e6f6ec;
+    --ok-ink: #1f7a4c;
+    --warn: #c98a2e;
+    --warn-soft: #fbf1e0;
+    --warn-ink: #96661e;
+    --bad: #d5555c;
+    --bad-soft: #fbe9ea;
+    --bad-ink: #a83239;
+    --info: #3f8fd9;
+    --info-soft: #e8f2fc;
+    --info-ink: #2b699f;
+    --code-bg: #ecedf4;
+    --shadow: 0 1px 2px rgba(26,29,39,0.04), 0 8px 24px -12px rgba(26,29,39,0.12);
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "Menlo", "Consolas", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #14151c;
+      --paper-raised: #1b1d27;
+      --ink: #eceef5;
+      --ink-soft: #b1b4c4;
+      --ink-faint: #6d7086;
+      --line: #2d2f3d;
+      --line-soft: #24262f;
+      --accent: #9683e8;
+      --accent-soft: #262143;
+      --accent-ink: #cabdf5;
+      --ok: #4bbf85;
+      --ok-soft: #17291f;
+      --ok-ink: #7bd6a4;
+      --warn: #dba24e;
+      --warn-soft: #2b2216;
+      --warn-ink: #eec078;
+      --bad: #e0747a;
+      --bad-soft: #2c1a1c;
+      --bad-ink: #f0a1a6;
+      --info: #6cadea;
+      --info-soft: #17232e;
+      --info-ink: #9ecbf5;
+      --code-bg: #20222c;
+      --shadow: 0 1px 2px rgba(0,0,0,0.2), 0 8px 24px -12px rgba(0,0,0,0.5);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper: #14151c;
+    --paper-raised: #1b1d27;
+    --ink: #eceef5;
+    --ink-soft: #b1b4c4;
+    --ink-faint: #6d7086;
+    --line: #2d2f3d;
+    --line-soft: #24262f;
+    --accent: #9683e8;
+    --accent-soft: #262143;
+    --accent-ink: #cabdf5;
+    --ok: #4bbf85;
+    --ok-soft: #17291f;
+    --ok-ink: #7bd6a4;
+    --warn: #dba24e;
+    --warn-soft: #2b2216;
+    --warn-ink: #eec078;
+    --bad: #e0747a;
+    --bad-soft: #2c1a1c;
+    --bad-ink: #f0a1a6;
+    --info: #6cadea;
+    --info-soft: #17232e;
+    --info-ink: #9ecbf5;
+    --code-bg: #20222c;
+    --shadow: 0 1px 2px rgba(0,0,0,0.2), 0 8px 24px -12px rgba(0,0,0,0.5);
+  }
+  :root[data-theme="light"] {
+    --paper: #f4f5f9;
+    --paper-raised: #ffffff;
+    --ink: #1a1d27;
+    --ink-soft: #4b4f5e;
+    --ink-faint: #8b8fa3;
+    --line: #d8dae4;
+    --line-soft: #e6e7ef;
+    --accent: #6e56cf;
+    --accent-soft: #efeafc;
+    --accent-ink: #4d3aa8;
+    --ok: #2f9e64;
+    --ok-soft: #e6f6ec;
+    --ok-ink: #1f7a4c;
+    --warn: #c98a2e;
+    --warn-soft: #fbf1e0;
+    --warn-ink: #96661e;
+    --bad: #d5555c;
+    --bad-soft: #fbe9ea;
+    --bad-ink: #a83239;
+    --info: #3f8fd9;
+    --info-soft: #e8f2fc;
+    --info-ink: #2b699f;
+    --code-bg: #ecedf4;
+    --shadow: 0 1px 2px rgba(26,29,39,0.04), 0 8px 24px -12px rgba(26,29,39,0.12);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+  }
+
+  /* ---------- header ---------- */
+  header { margin-bottom: 48px; }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+    padding: 5px 10px 5px 8px;
+    border-radius: 6px;
+    margin-bottom: 18px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  h1 {
+    font-size: 34px;
+    line-height: 1.15;
+    letter-spacing: -0.015em;
+    margin: 0 0 14px;
+    text-wrap: balance;
+    font-weight: 680;
+  }
+  h1 code { font-weight: 600; }
+  .lede {
+    font-size: 16.5px;
+    color: var(--ink-soft);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  code, .mono {
+    font-family: var(--mono);
+    font-size: 0.92em;
+  }
+  .lede code, p code, li code {
+    background: var(--code-bg);
+    padding: 0.12em 0.4em;
+    border-radius: 4px;
+    font-size: 0.87em;
+  }
+
+  h2.section-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 650;
+    color: var(--ink-faint);
+    margin: 0 0 20px;
+  }
+
+  /* ---------- entry points ---------- */
+  .entries {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  @media (max-width: 560px) { .entries { grid-template-columns: 1fr; } }
+  .entry {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 13px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .entry .who {
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--ink);
+  }
+  .entry .how {
+    font-size: 12.5px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+  }
+
+  .converge {
+    display: flex;
+    justify-content: center;
+    padding: 10px 0 8px;
+  }
+  .converge svg { display: block; }
+
+  /* ---------- spine / pipeline ---------- */
+  .pipeline {
+    position: relative;
+    padding-left: 34px;
+  }
+  .pipeline::before {
+    content: "";
+    position: absolute;
+    left: 11px;
+    top: 6px;
+    bottom: 6px;
+    width: 2px;
+    background: linear-gradient(var(--line), var(--line) 92%, transparent);
+  }
+
+  .stage {
+    position: relative;
+    margin-bottom: 8px;
+  }
+  .stage-node {
+    position: absolute;
+    left: -34px;
+    top: 18px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--paper-raised);
+    border: 2px solid var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .stage-node::after {
+    content: "";
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .stage-node.muted { border-color: var(--line); }
+  .stage-node.muted::after { background: var(--ink-faint); }
+
+  .stage-card {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .stage-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+  .stage-title {
+    font-size: 15.5px;
+    font-weight: 640;
+    letter-spacing: -0.005em;
+  }
+  .stage-file {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .stage-body {
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    line-height: 1.55;
+  }
+  .stage-body p { margin: 0 0 6px; }
+  .stage-body p:last-child { margin-bottom: 0; }
+
+  /* branch block: indented decision + outcomes */
+  .branch {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line-soft);
+  }
+  .branch-q {
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 8px;
+  }
+  .outcomes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .outcome {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    flex: 1 1 220px;
+  }
+  .outcome .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-top: 4px;
+    flex-shrink: 0;
+  }
+  .outcome b { font-weight: 650; display: block; }
+  .outcome span.detail { color: var(--ink-soft); font-weight: 400; }
+
+  .outcome.ok { background: var(--ok-soft); color: var(--ok-ink); }
+  .outcome.ok .dot { background: var(--ok); }
+  .outcome.warn { background: var(--warn-soft); color: var(--warn-ink); }
+  .outcome.warn .dot { background: var(--warn); }
+  .outcome.bad { background: var(--bad-soft); color: var(--bad-ink); }
+  .outcome.bad .dot { background: var(--bad); }
+  .outcome.info { background: var(--info-soft); color: var(--info-ink); }
+  .outcome.info .dot { background: var(--info); }
+  .outcome.neutral { background: var(--code-bg); color: var(--ink-soft); }
+  .outcome.neutral .dot { background: var(--ink-faint); }
+
+  /* ---------- note preview at the bottom of the pipeline ---------- */
+  .note-preview {
+    margin-top: 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--code-bg);
+  }
+  .note-preview .bar {
+    display: flex;
+    gap: 6px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .note-preview .bar span {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--line);
+  }
+  .note-preview pre {
+    margin: 0;
+    padding: 14px 16px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.65;
+    overflow-x: auto;
+    color: var(--ink-soft);
+  }
+  .note-preview .k { color: var(--ink-faint); }
+  .note-preview .v { color: var(--ink); }
+  .note-preview .callout-ok { color: var(--ok-ink); }
+  .note-preview .callout-warn { color: var(--warn-ink); }
+
+  /* ---------- loop back ---------- */
+  .loop {
+    margin-top: 40px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 560px) { .loop { grid-template-columns: 1fr; } }
+  .loop-card {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .loop-card .stage-title { margin-bottom: 6px; }
+  .loop-card .stage-body { font-size: 13px; }
+
+  .loop-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.03em;
+    margin: 18px 0 4px;
+  }
+  .loop-arrow svg { flex-shrink: 0; }
+
+  /* ---------- legend ---------- */
+  .legend {
+    margin-top: 56px;
+    padding-top: 28px;
+    border-top: 1px solid var(--line);
+  }
+  .legend-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 640px) { .legend-grid { grid-template-columns: repeat(2, 1fr); } }
+  .legend-item {
+    border-radius: 10px;
+    padding: 12px 13px;
+    font-size: 12px;
+  }
+  .legend-item .name {
+    font-weight: 650;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 4px;
+  }
+  .legend-item .name .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .legend-item .meaning { color: var(--ink-soft); }
+  .legend-item.ok { background: var(--ok-soft); }
+  .legend-item.ok .name { color: var(--ok-ink); }
+  .legend-item.ok .dot { background: var(--ok); }
+  .legend-item.warn { background: var(--warn-soft); }
+  .legend-item.warn .name { color: var(--warn-ink); }
+  .legend-item.warn .dot { background: var(--warn); }
+  .legend-item.bad { background: var(--bad-soft); }
+  .legend-item.bad .name { color: var(--bad-ink); }
+  .legend-item.bad .dot { background: var(--bad); }
+  .legend-item.info { background: var(--info-soft); }
+  .legend-item.info .name { color: var(--info-ink); }
+  .legend-item.info .dot { background: var(--info); }
+
+  footer {
+    margin-top: 40px;
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">yt-enrich · pipeline</div>
+    <h1>From a shared link to a judged note</h1>
+    <p class="lede">
+      What actually happens between dropping a YouTube URL somewhere and
+      finding a finished note in <strong>Reviewed/</strong> — including the
+      branches most summaries never show: what happens when a caption's
+      missing, a reformat times out, or a video is a Short.
+    </p>
+  </header>
+
+  <h2 class="section-title">Capture — any device, any way in</h2>
+  <div class="entries">
+    <div class="entry">
+      <div class="who">Phone / iPad</div>
+      <div class="how">Share Sheet → Obsidian</div>
+    </div>
+    <div class="entry">
+      <div class="who">Mac browser</div>
+      <div class="how">Quick Action keyboard shortcut</div>
+    </div>
+    <div class="entry">
+      <div class="who">Anywhere</div>
+      <div class="how">paste into <code>_links.md</code></div>
+    </div>
+    <div class="entry">
+      <div class="who">Web Clipper</div>
+      <div class="how">saved into <code>Clippings/</code></div>
+    </div>
+  </div>
+
+  <div class="converge" aria-hidden="true">
+    <svg width="220" height="34" viewBox="0 0 220 34" fill="none">
+      <path d="M20 0 V14 Q20 22 30 22 H190 Q200 22 200 14 V0" stroke="var(--line)" stroke-width="2"/>
+      <path d="M20 0 V14 Q20 22 30 22 H190 Q200 22 200 14 V0" stroke="var(--line)" stroke-width="2" transform="translate(0,0)"/>
+      <path d="M110 22 V34" stroke="var(--accent)" stroke-width="2"/>
+      <path d="M73 0 V10 Q73 22 88 22 H132 Q147 22 147 10 V0" stroke="var(--line)" stroke-width="2"/>
+    </svg>
+  </div>
+
+  <div class="pipeline">
+
+    <div class="stage">
+      <div class="stage-node"></div>
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-title">Collect unprocessed links</div>
+          <div class="stage-file">collect_urls()</div>
+        </div>
+        <div class="stage-body">
+          <p>Scans <code>_links.md</code>, any stub note in the vault root,
+          and <code>Clippings/</code> — skips anything already carrying
+          <code>processed: true</code>.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-node"></div>
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-title">Fetch metadata</div>
+          <div class="stage-file">fetch_meta() · YouTube Data API v3</div>
+        </div>
+        <div class="stage-body">
+          <p>Title, channel, duration, and default audio language —
+          the language field is what later decides whether the summary
+          gets written in French.</p>
+        </div>
+        <div class="branch">
+          <div class="branch-q">Is this a /shorts/ url?</div>
+          <div class="outcomes">
+            <div class="outcome info">
+              <span class="dot"></span>
+              <div><b>Yes</b><span class="detail">skip the verdict entirely later — a 40s video doesn't need "worth watching?"</span></div>
+            </div>
+            <div class="outcome neutral">
+              <span class="dot"></span>
+              <div><b>No</b><span class="detail">full pipeline, verdict included</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-node"></div>
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-title">Get the transcript</div>
+          <div class="stage-file">fetch_transcript() · yt-dlp</div>
+        </div>
+        <div class="stage-body">
+          <p>Three ways this can go, checked in order:</p>
+        </div>
+        <div class="branch">
+          <div class="branch-q">1 — a transcript is already in the note</div>
+          <div class="outcomes">
+            <div class="outcome neutral">
+              <span class="dot"></span>
+              <div><b>Reused, fetch skipped</b><span class="detail">looks_raw() decides below whether it still needs cleaning</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="branch">
+          <div class="branch-q">2 — otherwise, video exceeds max_transcript_minutes</div>
+          <div class="outcomes">
+            <div class="outcome neutral">
+              <span class="dot"></span>
+              <div><b>Skipped on purpose</b><span class="detail">deliberate, per your settings — stays <code>reviewed</code>, not flagged</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="branch">
+          <div class="branch-q">3 — otherwise, fetched fresh via yt-dlp</div>
+          <div class="outcomes">
+            <div class="outcome neutral">
+              <span class="dot"></span>
+              <div><b>Captions found</b><span class="detail">retried with backoff if rate-limited (429)</span></div>
+            </div>
+            <div class="outcome warn">
+              <span class="dot"></span>
+              <div><b>No captions exist</b><span class="detail">flagged — nothing to summarize</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-node"></div>
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-title">Clean the transcript</div>
+          <div class="stage-file">reformat_transcript() · claude_api.call_claude()</div>
+        </div>
+        <div class="stage-body">
+          <p>Runs on a fresh transcript, or on an existing one only if it
+          still <b>looks_raw()</b> — timestamp markers, near-zero
+          punctuation. A transcript someone already cleaned up by hand is
+          left alone. Punctuation, paragraphs, stripped timestamps —
+          retried on timeout/429/5xx with backoff.</p>
+        </div>
+        <div class="branch">
+          <div class="branch-q">Before the result is trusted</div>
+          <div class="outcomes">
+            <div class="outcome ok">
+              <span class="dot"></span>
+              <div><b>Right length, same language</b><span class="detail">used, <code>model_reformat</code> recorded</span></div>
+            </div>
+            <div class="outcome warn">
+              <span class="dot"></span>
+              <div><b>Truncated / translated / timed out</b><span class="detail">discarded — raw captions kept, note flagged</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-node"></div>
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-title">Summarize against your topics</div>
+          <div class="stage-file">claude_summary() · _youtube_settings.md</div>
+        </div>
+        <div class="stage-body">
+          <p>Title/channel matched against your keyword topics for a
+          per-subject focus, written in the video's own language, then
+          judged plainly — the prompt is told to be critical, not polite.</p>
+        </div>
+        <div class="branch">
+          <div class="branch-q">What does the video get</div>
+          <div class="outcomes">
+            <div class="outcome neutral">
+              <span class="dot"></span>
+              <div><b>Regular video</b><span class="detail">4–6 bullets + one-line verdict</span></div>
+            </div>
+            <div class="outcome info">
+              <span class="dot"></span>
+              <div><b>Short</b><span class="detail">1–3 bullets, no verdict asked for</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-node"></div>
+      <div class="stage-card">
+        <div class="stage-head">
+          <div class="stage-title">Assemble &amp; write the note</div>
+          <div class="stage-file">build_note()</div>
+        </div>
+        <div class="stage-body">
+          <p>Frontmatter, verdict callout, summary, transcript — moved into
+          <code>Reviewed/</code>. If anything upstream degraded, the note's
+          <code>status</code> flips instead of shipping quietly wrong:</p>
+        </div>
+        <div class="note-preview">
+          <div class="bar"><span></span><span></span><span></span></div>
+          <pre><span class="k">status:</span> <span class="v callout-warn">needs-attention</span>
+<span class="k">processed:</span> <span class="v">true</span>
+
+<span class="v callout-warn">&gt; [!warning] Enrichment issues — this note may be incomplete
+&gt; - reformat changed language (fr → en) — likely translated</span></pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="loop-arrow" aria-hidden="true">
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8h11M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    if anything was flagged
+  </div>
+
+  <div class="loop">
+    <div class="loop-card">
+      <div class="stage-title">See what's flagged</div>
+      <div class="stage-body">
+        <p><code>dashboard.py</code> — vault, keys, queue depth, and every
+        <code>needs-attention</code> note with its reason, read-only.</p>
+      </div>
+    </div>
+    <div class="loop-card">
+      <div class="stage-title">Send it back through</div>
+      <div class="stage-body">
+        <p><code>reprocess.py --flagged --run</code> — clears
+        <code>processed:</code>, requeues, rebuilds from scratch.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <h2 class="section-title">Verdict callouts this pipeline writes</h2>
+    <div class="legend-grid">
+      <div class="legend-item ok">
+        <div class="name"><span class="dot"></span>Yes</div>
+        <div class="meaning">worth watching in full</div>
+      </div>
+      <div class="legend-item warn">
+        <div class="name"><span class="dot"></span>Maybe</div>
+        <div class="meaning">genuine toss-up</div>
+      </div>
+      <div class="legend-item bad">
+        <div class="name"><span class="dot"></span>No</div>
+        <div class="meaning">summary already covers it</div>
+      </div>
+      <div class="legend-item info">
+        <div class="name"><span class="dot"></span>Short / info</div>
+        <div class="meaning">no verdict needed — or flagged for review</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>yt-enrich · enrich_youtube.py + enrich_youtube_auto.py</footer>
+
+</div>

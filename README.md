@@ -82,6 +82,11 @@ The verdict callout is color-coded so you can triage at a glance: **Yes**
 
 ## The flow
 
+A visual walkthrough of every stage and branch — including what happens
+when a caption's missing, a reformat times out, or a video is a Short —
+is in [`docs/pipeline-flow.html`](docs/pipeline-flow.html) (open it
+directly in a browser, no server needed).
+
 ```
 1. CAPTURE (any device)
    Phone: Share Sheet → Obsidian → new note with just the URL
