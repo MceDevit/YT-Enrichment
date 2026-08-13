@@ -19,6 +19,10 @@ focus: Focus on concrete code patterns, dev tools, and anything directly applica
 keywords: guitar, jazz, tarrega, manouche, baden powell, gypsy jazz, music, chord, scale, fretboard
 focus: Focus on technique, repertoire, and practice tips rather than general commentary. Note any specific pieces, chord voicings, or exercises mentioned.
 
+## Food
+keywords: recipe, cooking, cook, baking, bake, chef, kitchen, dish, ingredients, meal prep, food
+focus: Extract the actual recipe — ingredients with quantities, and the steps in order. Note any specific techniques, substitutions, or tips the creator calls out. Skip general commentary/story unless it affects the recipe.
+
 ## Summary Prompt
 Prioritize, in this order of importance:
 1. Technical takeaways — tools, techniques, code patterns, or concrete methods shown.
@@ -26,6 +30,8 @@ Prioritize, in this order of importance:
 3. Any specific links, tools, libraries, or resources mentioned by name.
 
 End with one final bullet: a one-line verdict on whether it's worth watching in full — judged against my stated interest if I gave one, otherwise judge generally — and why or why not.
+
+If the creator is selling, sponsoring, or promoting something — their own product/service, an affiliate or referral deal, a paid partnership, a course, a tool with a discount code — add one line naming what's being sold and by whom. If there's no commercial lead, don't mention it at all; don't add a line just to say "no lead."
 
 Be decisive. Default to Yes or No — only use Maybe if the video is a genuine toss-up (e.g. good content but a format you may not enjoy). Don't use Maybe just to hedge. If the video is mostly filler, hype, opinion without substance, or this summary already captures everything of value so the full video adds little, say No plainly and say why. Be critical — most videos are not worth watching in full even if they're fine to summarize.
 
