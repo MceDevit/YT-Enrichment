@@ -402,9 +402,12 @@ class TestBuildNote(unittest.TestCase):
         without = core.build_note(self.META, "t", "s")
         self.assertNotIn("model_reformat:", without)
         self.assertNotIn("model_summary:", without)
-        with_both = core.build_note(self.META, "t", "s", reformatted=True, summarized=True)
-        self.assertIn("model_reformat:", with_both)
-        self.assertIn("model_summary:", with_both)
+        self.assertNotIn("model_translate:", without)
+        with_all = core.build_note(self.META, "t", "s", reformatted=True, summarized=True,
+                                   translated=True)
+        self.assertIn("model_reformat:", with_all)
+        self.assertIn("model_summary:", with_all)
+        self.assertIn(f"model_translate: {core.TRANSLATE_MODEL}", with_all)
 
     def test_quotes_in_title_do_not_break_frontmatter(self):
         note = core.build_note({**self.META, "title": 'He said "hello"'}, "t", "s")

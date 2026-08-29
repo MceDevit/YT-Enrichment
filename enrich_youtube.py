@@ -390,8 +390,8 @@ def verdict_callout(verdict):
 
 
 def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
-                reformatted=False, summarized=False, transcript_done_at=None, is_short=False,
-                warnings=None, books=None, topic=None):
+                reformatted=False, summarized=False, translated=False, transcript_done_at=None,
+                is_short=False, warnings=None, books=None, topic=None):
     tags = ["youtube"]
     tag = topic_tag(topic) if topic else None
     if tag:
@@ -412,6 +412,8 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
         fm.append(f"transcript_done: {transcript_done_at}")
     if reformatted:
         fm.append(f"model_reformat: {REFORMAT_MODEL}")
+    if translated:
+        fm.append(f"model_translate: {TRANSLATE_MODEL}")
     if summarized:
         fm.append(f"model_summary: {CLAUDE_MODEL}")
     fm += ["---", ""]
@@ -586,6 +588,7 @@ def main(focus_getter=None, topic_getter=None):
             is_short = "/shorts/" in url
             transcript_note = None
             reformatted = False
+            translated = False
             transcript_done_at = None
             transcript_skipped_on_purpose = False
             warnings = []
@@ -638,10 +641,11 @@ def main(focus_getter=None, topic_getter=None):
                 if (USE_CLAUDE and fetched_fresh
                         and transcript_target_lang(meta.get("language")) == "fr"
                         and (meta.get("language") or "").split("-")[0].lower() != "fr"):
-                    translated, problem = translate_transcript(transcript, model=TRANSLATE_MODEL)
-                    if translated:
-                        transcript = translated
+                    translated_text, problem = translate_transcript(transcript, model=TRANSLATE_MODEL)
+                    if translated_text:
+                        transcript = translated_text
                         summary_language = "fr"
+                        translated = True
                     elif problem:
                         warnings.append(f"transcript left untranslated — {problem}")
                 transcript_done_at = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -660,7 +664,7 @@ def main(focus_getter=None, topic_getter=None):
                 warnings.append("no verdict line in the summary")
             books, summary = extract_books(summary) if summary else ([], summary)
             body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict,
-                               reformatted=reformatted, summarized=summarized,
+                               reformatted=reformatted, summarized=summarized, translated=translated,
                                transcript_done_at=transcript_done_at, is_short=is_short,
                                warnings=warnings, books=books, topic=topic)
 
