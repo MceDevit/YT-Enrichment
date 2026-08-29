@@ -102,6 +102,7 @@ def scan_notes():
             "summarized": "model_summary" in fm,
             "has_transcript": "_No transcript available._" not in text,
             "warnings": note_warnings(text),
+            "api_cost": float(fm["api_cost"].lstrip("$")) if "api_cost" in fm else 0.0,
         })
     return notes
 
@@ -227,6 +228,11 @@ def main():
         flagged_txt = (s.yellow(f"{len(flagged)} needs attention")
                        if flagged else s.green("0 needs attention"))
         print(f"  flagged            {flagged_txt}")
+
+        total_cost = sum(n["api_cost"] for n in notes)
+        if total_cost:
+            print(f"  API spend          ${total_cost:.2f} total"
+                  f"   ·   ${total_cost / len(notes):.4f}/video avg")
 
         top = Counter(n["channel"] for n in notes if n["channel"]).most_common(3)
         if top:

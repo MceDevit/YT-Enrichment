@@ -371,6 +371,14 @@ class TestBuildNote(unittest.TestCase):
         note = core.build_note(self.META, "t", "s")
         self.assertNotIn("Topic: [[", note)
 
+    def test_api_cost_shown_in_frontmatter(self):
+        note = core.build_note(self.META, "t", "s", api_cost=0.0034)
+        self.assertIn("api_cost: $0.0034", note)
+
+    def test_zero_api_cost_is_omitted(self):
+        note = core.build_note(self.META, "t", "s", api_cost=0.0)
+        self.assertNotIn("api_cost", note)
+
     def test_clean_note_is_reviewed_with_no_warning_block(self):
         note = core.build_note(self.META, "transcript", "summary", verdict="Yes — good")
         self.assertIn(f"status: {core.STATUS_DONE}", note)
@@ -566,21 +574,49 @@ class TestTopicTag(unittest.TestCase):
         self.assertIsNone(core.topic_tag("   "))
 
 
+class TestEstimateCost(unittest.TestCase):
+    def test_known_model_computes_blended_cost(self):
+        usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+        self.assertAlmostEqual(claude_api.estimate_cost("claude-sonnet-5", usage), 12.00)
+
+    def test_dated_snapshot_prices_at_its_family_rate(self):
+        usage = {"input_tokens": 1_000_000, "output_tokens": 0}
+        self.assertAlmostEqual(
+            claude_api.estimate_cost("claude-haiku-4-5-20251001", usage), 1.00)
+
+    def test_unknown_model_costs_nothing(self):
+        usage = {"input_tokens": 1_000_000, "output_tokens": 1_000_000}
+        self.assertEqual(claude_api.estimate_cost("some-future-model", usage), 0.0)
+
+    def test_missing_usage_costs_nothing(self):
+        self.assertEqual(claude_api.estimate_cost("claude-sonnet-5", None), 0.0)
+
+
 class TestCallClaudeRetries(unittest.TestCase):
     """call_claude() is the reason a single timeout no longer loses the work."""
 
     @staticmethod
-    def _ok(text="ok", stop_reason="end_turn"):
-        return http_response(payload={"content": [{"type": "text", "text": text}],
-                                      "stop_reason": stop_reason})
+    def _ok(text="ok", stop_reason="end_turn", usage=None):
+        payload = {"content": [{"type": "text", "text": text}], "stop_reason": stop_reason}
+        if usage is not None:
+            payload["usage"] = usage
+        return http_response(payload=payload)
 
     @mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_returns_text_and_stop_reason(self):
         with mock.patch.object(claude_api.requests, "post",
                                return_value=self._ok(text="hello")) as post:
-            text, stop = claude_api.call_claude("p", model="m", max_tokens=10)
+            text, stop, _usage = claude_api.call_claude("p", model="m", max_tokens=10)
         self.assertEqual((text, stop), ("hello", "end_turn"))
         self.assertEqual(post.call_count, 1)
+
+    @mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
+    def test_returns_usage_for_cost_estimation(self):
+        usage = {"input_tokens": 100, "output_tokens": 50}
+        with mock.patch.object(claude_api.requests, "post",
+                               return_value=self._ok(usage=usage)):
+            _text, _stop, returned_usage = claude_api.call_claude("p", model="m", max_tokens=10)
+        self.assertEqual(returned_usage, usage)
 
     @mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
     def test_concatenates_multiple_text_blocks(self):
@@ -589,7 +625,7 @@ class TestCallClaudeRetries(unittest.TestCase):
                                                   {"type": "text", "text": "part two"}],
                                       "stop_reason": "end_turn"})
         with mock.patch.object(claude_api.requests, "post", return_value=resp):
-            text, _ = claude_api.call_claude("p", model="m", max_tokens=10)
+            text, _, _ = claude_api.call_claude("p", model="m", max_tokens=10)
         self.assertEqual(text, "part one part two")
 
     @mock.patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"})
@@ -604,7 +640,7 @@ class TestCallClaudeRetries(unittest.TestCase):
             return outcome
 
         with mock.patch.object(claude_api.requests, "post", side_effect=flaky), quiet():
-            text, _ = claude_api.call_claude("p", model="m", max_tokens=10,
+            text, _, _ = claude_api.call_claude("p", model="m", max_tokens=10,
                                              retry_delays=(0, 0))
         self.assertEqual(text, "recovered")
         self.assertEqual(attempts, [])
@@ -653,36 +689,43 @@ class TestReformatTranscriptWrapper(unittest.TestCase):
     the caller keeps the raw captions instead."""
 
     def test_blank_input_is_a_no_op(self):
-        self.assertEqual(rt.reformat_transcript(""), ("", None))
-        self.assertEqual(rt.reformat_transcript("   "), ("", None))
+        self.assertEqual(rt.reformat_transcript(""), ("", None, 0.0))
+        self.assertEqual(rt.reformat_transcript("   "), ("", None, 0.0))
 
     def test_token_cap_truncation_is_rejected(self):
         with mock.patch.object(rt, "call_claude",
-                               return_value=("partial", "max_tokens")), quiet():
-            text, problem = rt.reformat_transcript(FRENCH_TEXT)
+                               return_value=("partial", "max_tokens", None)), quiet():
+            text, problem, _cost = rt.reformat_transcript(FRENCH_TEXT)
         self.assertEqual(text, "")
         self.assertIn("token cap", problem)
 
     def test_translated_output_is_rejected(self):
         with mock.patch.object(rt, "call_claude",
-                               return_value=(ENGLISH_TEXT, "end_turn")), quiet():
-            text, problem = rt.reformat_transcript(FRENCH_TEXT)
+                               return_value=(ENGLISH_TEXT, "end_turn", None)), quiet():
+            text, problem, _cost = rt.reformat_transcript(FRENCH_TEXT)
         self.assertEqual(text, "")
         self.assertIn("language", problem)
 
     def test_api_failure_is_reported_not_raised(self):
         with mock.patch.object(rt, "call_claude",
                                side_effect=rt.ClaudeError("boom")), quiet():
-            text, problem = rt.reformat_transcript(FRENCH_TEXT)
+            text, problem, cost = rt.reformat_transcript(FRENCH_TEXT)
         self.assertEqual(text, "")
         self.assertIn("boom", problem)
+        self.assertEqual(cost, 0.0)
 
     def test_good_output_passes_through(self):
         good = FRENCH_TEXT.replace(" et ", ". Et ")
-        with mock.patch.object(rt, "call_claude", return_value=(good, "end_turn")):
-            text, problem = rt.reformat_transcript(FRENCH_TEXT)
+        with mock.patch.object(rt, "call_claude", return_value=(good, "end_turn", None)):
+            text, problem, _cost = rt.reformat_transcript(FRENCH_TEXT)
         self.assertEqual(text, good)
         self.assertIsNone(problem)
+
+    def test_usage_is_costed_at_the_reformat_models_rate(self):
+        usage = {"input_tokens": 1_000_000, "output_tokens": 0}
+        with mock.patch.object(rt, "call_claude", return_value=("clean", "end_turn", usage)), quiet():
+            _text, _problem, cost = rt.reformat_transcript(FRENCH_TEXT, model="claude-haiku-4-5-20251001")
+        self.assertAlmostEqual(cost, 1.00)  # $1.00/1M input tokens for the Haiku family
 
 
 class TestTranslateTranscriptWrapper(unittest.TestCase):
@@ -690,34 +733,35 @@ class TestTranslateTranscriptWrapper(unittest.TestCase):
     the caller keeps the untranslated transcript instead."""
 
     def test_blank_input_is_a_no_op(self):
-        self.assertEqual(tt.translate_transcript(""), ("", None))
-        self.assertEqual(tt.translate_transcript("   "), ("", None))
+        self.assertEqual(tt.translate_transcript(""), ("", None, 0.0))
+        self.assertEqual(tt.translate_transcript("   "), ("", None, 0.0))
 
     def test_token_cap_truncation_is_rejected(self):
         with mock.patch.object(tt, "call_claude",
-                               return_value=("partial", "max_tokens")), quiet():
-            text, problem = tt.translate_transcript(ENGLISH_TEXT)
+                               return_value=("partial", "max_tokens", None)), quiet():
+            text, problem, _cost = tt.translate_transcript(ENGLISH_TEXT)
         self.assertEqual(text, "")
         self.assertIn("token cap", problem)
 
     def test_untranslated_output_is_rejected(self):
         # Claude echoed the source back instead of translating it to French.
         with mock.patch.object(tt, "call_claude",
-                               return_value=(ENGLISH_TEXT, "end_turn")), quiet():
-            text, problem = tt.translate_transcript(ENGLISH_TEXT)
+                               return_value=(ENGLISH_TEXT, "end_turn", None)), quiet():
+            text, problem, _cost = tt.translate_transcript(ENGLISH_TEXT)
         self.assertEqual(text, "")
         self.assertIn("French", problem)
 
     def test_api_failure_is_reported_not_raised(self):
         with mock.patch.object(tt, "call_claude",
                                side_effect=tt.ClaudeError("boom")), quiet():
-            text, problem = tt.translate_transcript(ENGLISH_TEXT)
+            text, problem, cost = tt.translate_transcript(ENGLISH_TEXT)
         self.assertEqual(text, "")
         self.assertIn("boom", problem)
+        self.assertEqual(cost, 0.0)
 
     def test_good_translation_passes_through(self):
-        with mock.patch.object(tt, "call_claude", return_value=(FRENCH_TEXT, "end_turn")):
-            text, problem = tt.translate_transcript(ENGLISH_TEXT)
+        with mock.patch.object(tt, "call_claude", return_value=(FRENCH_TEXT, "end_turn", None)):
+            text, problem, _cost = tt.translate_transcript(ENGLISH_TEXT)
         self.assertEqual(text, FRENCH_TEXT)
         self.assertIsNone(problem)
 

@@ -30,6 +30,7 @@ processed: true
 transcript_done: 2026-07-22 14:53
 model_reformat: claude-haiku-4-5-20251001
 model_summary: claude-haiku-4-5-20251001
+api_cost: $0.0071
 ---
 
 > [!warning] Worth watching? Maybe — useful if you actively use the
@@ -82,6 +83,10 @@ The verdict callout is color-coded so you can triage at a glance: **Yes**
   uploads, either auto-queued or via a local approve/skip webpage.
 - **Length cutoff** — videos over `max_transcript_minutes` (default 60)
   skip the transcript entirely; you still get metadata.
+- **Cost per note** — every Claude call (reformat, translate, summary) is
+  costed from the API's own token usage and shown as `api_cost:` in the
+  note's frontmatter, so you can see what any single video cost. `python3
+  dashboard.py` also totals it across your whole library.
 - **Works offline from YouTube's UI** — your watch-later lives in your
   vault as Markdown, searchable and linkable forever.
 
@@ -341,7 +346,9 @@ Shortcuts runs the script silently and shows nothing on screen.
   accounts start with a small amount of free credit (no credit card
   needed), enough to test the whole pipeline before spending anything.
   Set `use_claude: no` to skip summaries entirely (metadata + transcript
-  still work, and cost nothing).
+  still work, and cost nothing). Every note's actual cost (from the API's
+  token usage, priced per `claude_api.MODEL_PRICING`) is written as
+  `api_cost:` in its frontmatter, so this isn't a guess per video.
 
 ## Known limitations (honest ones)
 

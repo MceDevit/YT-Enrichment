@@ -34,7 +34,7 @@ from pathlib import Path
 
 import requests
 
-from claude_api import ClaudeError, call_claude
+from claude_api import ClaudeError, call_claude, estimate_cost
 from reformat_transcript import reformat_transcript
 from translate_transcript import translate_transcript
 
@@ -252,13 +252,15 @@ SHORT_SUMMARY_INSTRUCTIONS = ""
 
 
 def claude_summary(title, transcript, focus=None, language=None, is_short=False):
-    """Returns (summary_text, problem). `problem` is None when the summary is
-    trustworthy, else a short string describing how it degraded — the caller
-    surfaces it on the note rather than silently writing a partial summary."""
+    """Returns (summary_text, problem, cost). `problem` is None when the summary
+    is trustworthy, else a short string describing how it degraded — the caller
+    surfaces it on the note rather than silently writing a partial summary.
+    `cost` (USD) is returned even on a degraded summary, since the call was
+    still billed."""
     if not USE_CLAUDE:
-        return "", None
+        return "", None, 0.0
     if not transcript:
-        return "", "no transcript to summarize"
+        return "", "no transcript to summarize", 0.0
     focus_line = f" Pay particular attention to: {focus}.\n\n" if focus else "\n\n"
     # French-language videos get a French summary/verdict — the VERDICT:
     # prefix itself stays in English (extract_verdict/VERDICT_RE match on
@@ -300,7 +302,7 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
             "Transcript:\n\n" + transcript[:100_000]
         )
     try:
-        text, stop_reason = call_claude(
+        text, stop_reason, usage = call_claude(
             prompt,
             model=CLAUDE_MODEL,
             max_tokens=CLAUDE_MAX_TOKENS,
@@ -309,7 +311,8 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
         )
     except ClaudeError as e:
         print(f"  ! {e}", file=sys.stderr)
-        return "", str(e)
+        return "", str(e), 0.0
+    cost = estimate_cost(CLAUDE_MODEL, usage)
 
     if stop_reason == "max_tokens":
         # The VERDICT line is appended at the very end of the response, so a
@@ -323,9 +326,9 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
         text = re.sub(r"\n?[\s>*•\-]*VERDICT:.*$", "", text,
                        flags=re.IGNORECASE | re.DOTALL).strip()
         text += "\n\n_(summary truncated — hit the token limit before the verdict)_"
-        return text, problem
+        return text, problem, cost
 
-    return text, None
+    return text, None, cost
 
 
 VERDICT_RE = re.compile(r"^[\s>*•\-]*VERDICT:\s*(.+?)\**\s*$", re.MULTILINE | re.IGNORECASE)
@@ -391,7 +394,7 @@ def verdict_callout(verdict):
 
 def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
                 reformatted=False, summarized=False, translated=False, transcript_done_at=None,
-                is_short=False, warnings=None, books=None, topic=None):
+                is_short=False, warnings=None, books=None, topic=None, api_cost=0.0):
     tags = ["youtube"]
     tag = topic_tag(topic) if topic else None
     if tag:
@@ -416,6 +419,11 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
         fm.append(f"model_translate: {TRANSLATE_MODEL}")
     if summarized:
         fm.append(f"model_summary: {CLAUDE_MODEL}")
+    if api_cost:
+        # Estimated from the Anthropic API's own token usage, not a billing
+        # record — see claude_api.estimate_cost(). Rounds to 4dp so a cheap
+        # Haiku call ($0.0003) doesn't display as $0.00.
+        fm.append(f"api_cost: ${api_cost:.4f}")
     fm += ["---", ""]
     if warnings:
         # Runs happen headless (cron / iPhone Shortcut over SSH) where nobody
@@ -597,6 +605,7 @@ def main(focus_getter=None, topic_getter=None):
             transcript_done_at = None
             transcript_skipped_on_purpose = False
             warnings = []
+            api_cost = 0.0
 
             existing_transcript = ""
             if src is not None:
@@ -631,7 +640,8 @@ def main(focus_getter=None, topic_getter=None):
 
             if transcript:
                 if USE_CLAUDE and (not existing_transcript or looks_raw(existing_transcript)):
-                    cleaned, problem = reformat_transcript(transcript, model=REFORMAT_MODEL)
+                    cleaned, problem, cost = reformat_transcript(transcript, model=REFORMAT_MODEL)
+                    api_cost += cost
                     if cleaned:
                         transcript = cleaned
                         reformatted = True
@@ -646,7 +656,8 @@ def main(focus_getter=None, topic_getter=None):
                 if (USE_CLAUDE and fetched_fresh
                         and transcript_target_lang(meta.get("language")) == "fr"
                         and (meta.get("language") or "").split("-")[0].lower() != "fr"):
-                    translated_text, problem = translate_transcript(transcript, model=TRANSLATE_MODEL)
+                    translated_text, problem, cost = translate_transcript(transcript, model=TRANSLATE_MODEL)
+                    api_cost += cost
                     if translated_text:
                         transcript = translated_text
                         summary_language = "fr"
@@ -656,8 +667,9 @@ def main(focus_getter=None, topic_getter=None):
                 transcript_done_at = datetime.now().strftime("%Y-%m-%d %H:%M")
             focus = focus_getter(meta) if focus_getter else None
             topic = topic_getter(meta) if topic_getter else None
-            summary, problem = claude_summary(meta["title"], transcript, focus=focus,
-                                               language=summary_language, is_short=is_short)
+            summary, problem, cost = claude_summary(meta["title"], transcript, focus=focus,
+                                                      language=summary_language, is_short=is_short)
+            api_cost += cost
             # Skip the summary's own complaint when there was never a transcript
             # to work from: either that was deliberate (length limit), or the
             # missing captions are already recorded above — no need to say it twice.
@@ -671,7 +683,7 @@ def main(focus_getter=None, topic_getter=None):
             body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict,
                                reformatted=reformatted, summarized=summarized, translated=translated,
                                transcript_done_at=transcript_done_at, is_short=is_short,
-                               warnings=warnings, books=books, topic=topic)
+                               warnings=warnings, books=books, topic=topic, api_cost=api_cost)
 
             dest_dir = REVIEWED if MOVE_TO_REVIEWED else INBOX
             dest = dest_dir / f"{sanitize(meta['title'])}.md"

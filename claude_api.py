@@ -24,6 +24,33 @@ DEFAULT_RETRY_DELAYS = (5, 15, 30)
 
 RETRYABLE_STATUS = {408, 429, 500, 502, 503, 504, 529}
 
+# USD per million tokens (input, output). Keyed by model family prefix rather
+# than the full dated model string, since a snapshot suffix (e.g.
+# "claude-haiku-4-5-20251001") still bills at its family's rate. Checked
+# against https://docs.claude.com/en/docs/about-claude/models — re-verify
+# there if a cost looks off, prices change over time.
+MODEL_PRICING = {
+    "claude-haiku-4-5": (1.00, 5.00),
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-opus-5": (5.00, 25.00),
+}
+
+
+def estimate_cost(model, usage):
+    """Returns the USD cost of one call, or 0.0 if the model/usage is unrecognized.
+
+    `usage` is the {"input_tokens": N, "output_tokens": N} dict call_claude()
+    returns — None (e.g. a mocked test response) costs nothing rather than
+    raising, since this is a best-effort estimate, not a billing record.
+    """
+    if not usage:
+        return 0.0
+    for prefix, (in_price, out_price) in MODEL_PRICING.items():
+        if model.startswith(prefix):
+            return (usage.get("input_tokens", 0) * in_price
+                     + usage.get("output_tokens", 0) * out_price) / 1_000_000
+    return 0.0
+
 
 class ClaudeError(Exception):
     """Raised when a call fails and is not worth retrying (or retries ran out)."""
@@ -31,7 +58,12 @@ class ClaudeError(Exception):
 
 def call_claude(prompt, model, max_tokens, timeout=180,
                 retry_delays=DEFAULT_RETRY_DELAYS, label="claude call"):
-    """POST a single-user-message request. Returns (text, stop_reason).
+    """POST a single-user-message request. Returns (text, stop_reason, usage).
+
+    usage is the API's {"input_tokens": N, "output_tokens": N} dict — pass it
+    to estimate_cost(model, usage) for what the call cost. It reflects
+    whatever got billed even on a truncated/rejected response, since the
+    tokens were still spent; only a raised ClaudeError means nothing was billed.
 
     Retries on timeouts / connection errors / 429 / 5xx with backoff. Fails
     fast (no retry) on 4xx like a bad API key or unknown model, where retrying
@@ -68,7 +100,7 @@ def call_claude(prompt, model, max_tokens, timeout=180,
             blocks = data.get("content", [])
             text = "".join(b.get("text", "") for b in blocks
                            if b.get("type") == "text").strip()
-            return text, data.get("stop_reason")
+            return text, data.get("stop_reason"), data.get("usage")
 
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None

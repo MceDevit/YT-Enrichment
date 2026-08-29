@@ -8,23 +8,24 @@ the vault still gets a French-language transcript without ever asking
 YouTube for an auto-translated caption track (that endpoint is throttled far
 harder than native captions; see fetch_transcript()'s docstring).
 
-Returns a (text, problem) pair, same pattern as reformat_transcript(): a
-translation can come back plausible-but-wrong (truncated by the token cap,
+Returns a (text, problem, cost) triple, same pattern as reformat_transcript():
+a translation can come back plausible-but-wrong (truncated by the token cap,
 or not actually translated at all), so the caller falls back to the
 untranslated transcript and flags the note instead of writing a broken
-translation as if it were fine.
+translation as if it were fine. `cost` is returned even on a rejected result,
+since the call was still billed.
 
 Usage:
     from translate_transcript import translate_transcript
 
-    french_text, problem = translate_transcript(transcript)
+    french_text, problem, cost = translate_transcript(transcript)
     if problem:
         ...  # keep the untranslated transcript, surface `problem`
 """
 
 import sys
 
-from claude_api import ClaudeError, call_claude
+from claude_api import ClaudeError, call_claude, estimate_cost
 from reformat_transcript import detect_language
 
 # Model names change over time — confirm current strings at
@@ -78,16 +79,16 @@ def check_translation(raw, translated):
 
 
 def translate_transcript(transcript, model=CLAUDE_MODEL):
-    """Send a transcript to Claude and return (french_text, problem).
+    """Send a transcript to Claude and return (french_text, problem, cost).
 
-    On any failure or failed sanity check, returns ('', problem) so the
+    On any failure or failed sanity check, returns ('', problem, cost) so the
     caller keeps the untranslated transcript rather than writing a damaged one.
     """
     if not transcript or not transcript.strip():
-        return "", None
+        return "", None, 0.0
 
     try:
-        translated, stop_reason = call_claude(
+        translated, stop_reason, usage = call_claude(
             TRANSLATE_PROMPT.format(transcript=transcript),
             model=model,
             max_tokens=CLAUDE_MAX_TOKENS,
@@ -96,20 +97,21 @@ def translate_transcript(transcript, model=CLAUDE_MODEL):
         )
     except ClaudeError as e:
         print(f"  ! {e}", file=sys.stderr)
-        return "", str(e)
+        return "", str(e), 0.0
+    cost = estimate_cost(model, usage)
 
     if stop_reason == "max_tokens":
         problem = (f"translation hit the {CLAUDE_MAX_TOKENS}-token cap and was truncated; "
                    "kept the untranslated transcript")
         print(f"  ! {problem}", file=sys.stderr)
-        return "", problem
+        return "", problem, cost
 
     problem = check_translation(transcript, translated)
     if problem:
         print(f"  ! {problem}; kept the untranslated transcript", file=sys.stderr)
-        return "", problem
+        return "", problem, cost
 
-    return translated, None
+    return translated, None, cost
 
 
 if __name__ == "__main__":
@@ -118,5 +120,6 @@ if __name__ == "__main__":
         "Hoje vamos falar sobre como configurar um ambiente virtual em Python. "
         "E bem simples, primeiro voce abre o terminal e digita python3 -m venv env."
     )
-    text, problem = translate_transcript(sample)
+    text, problem, cost = translate_transcript(sample)
     print(text or f"(no output — {problem})")
+    print(f"cost: ${cost:.4f}")

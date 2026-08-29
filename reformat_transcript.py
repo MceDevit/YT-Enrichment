@@ -5,16 +5,17 @@ Takes a raw yt-dlp transcript (often one run-on block of text with filler
 words, no punctuation/paragraphs) and asks Claude to clean it into readable
 prose.
 
-Returns a (text, problem) pair rather than a bare string: a reformat can come
-back *plausible but wrong* — truncated by the token cap, or silently
+Returns a (text, problem, cost) triple rather than a bare string: a reformat
+can come back *plausible but wrong* — truncated by the token cap, or silently
 translated out of the source language — and the caller needs to know that so
 it can fall back to the raw captions and flag the note instead of writing the
-damaged version as if it were fine.
+damaged version as if it were fine. `cost` (USD, from claude_api.estimate_cost)
+is returned even when the result is rejected, since the call was still billed.
 
 Usage:
     from reformat_transcript import reformat_transcript
 
-    clean_text, problem = reformat_transcript(raw_transcript)
+    clean_text, problem, cost = reformat_transcript(raw_transcript)
     if problem:
         ...  # keep the raw transcript, surface `problem`
 """
@@ -22,7 +23,7 @@ Usage:
 import re
 import sys
 
-from claude_api import ClaudeError, call_claude
+from claude_api import ClaudeError, call_claude, estimate_cost
 
 # Model names change over time — confirm current strings at
 # https://docs.claude.com/en/docs/about-claude/models
@@ -134,16 +135,16 @@ def check_reformat(raw, cleaned):
 
 
 def reformat_transcript(raw_transcript, model=CLAUDE_MODEL):
-    """Send a raw transcript to Claude and return (cleaned_text, problem).
+    """Send a raw transcript to Claude and return (cleaned_text, problem, cost).
 
-    On any failure or failed sanity check, returns ('', problem) so the caller
-    keeps the raw transcript rather than writing a damaged one.
+    On any failure or failed sanity check, returns ('', problem, cost) so the
+    caller keeps the raw transcript rather than writing a damaged one.
     """
     if not raw_transcript or not raw_transcript.strip():
-        return "", None
+        return "", None, 0.0
 
     try:
-        cleaned, stop_reason = call_claude(
+        cleaned, stop_reason, usage = call_claude(
             REFORMAT_PROMPT.format(transcript=raw_transcript),
             model=model,
             max_tokens=CLAUDE_MAX_TOKENS,
@@ -152,20 +153,21 @@ def reformat_transcript(raw_transcript, model=CLAUDE_MODEL):
         )
     except ClaudeError as e:
         print(f"  ! {e}", file=sys.stderr)
-        return "", str(e)
+        return "", str(e), 0.0
+    cost = estimate_cost(model, usage)
 
     if stop_reason == "max_tokens":
         problem = (f"reformat hit the {CLAUDE_MAX_TOKENS}-token cap and was truncated; "
                    "kept the raw transcript")
         print(f"  ! {problem}", file=sys.stderr)
-        return "", problem
+        return "", problem, cost
 
     problem = check_reformat(raw_transcript, cleaned)
     if problem:
         print(f"  ! {problem}; kept the raw transcript", file=sys.stderr)
-        return "", problem
+        return "", problem, cost
 
-    return cleaned, None
+    return cleaned, None, cost
 
 
 if __name__ == "__main__":
@@ -175,5 +177,6 @@ if __name__ == "__main__":
         "a a python virtual environment you know its pretty simple "
         "first you open your terminal and then um you type python3 -m venv env"
     )
-    text, problem = reformat_transcript(sample)
+    text, problem, cost = reformat_transcript(sample)
     print(text or f"(no output — {problem})")
+    print(f"cost: ${cost:.4f}")

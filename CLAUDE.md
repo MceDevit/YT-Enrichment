@@ -142,9 +142,18 @@ transcript's language isn't known).
 (plain `requests` POST, not the `anthropic` SDK — `requests` stays the only
 non-stdlib dependency).
 `call_claude()` retries timeouts/429/5xx with backoff and fails fast on 4xx
-(bad key, unknown model), returning `(text, stop_reason)` so callers can
-detect `max_tokens` truncation. This exists because a single un-retried
-timeout used to silently drop a transcript cleanup and keep the raw captions.
+(bad key, unknown model), returning `(text, stop_reason, usage)` so callers
+can detect `max_tokens` truncation and cost the call. This exists because a
+single un-retried timeout used to silently drop a transcript cleanup and
+keep the raw captions.
+`estimate_cost(model, usage)` turns that `usage` into a USD figure via
+`MODEL_PRICING` (keyed by model-family prefix, so a dated snapshot like
+`claude-haiku-4-5-20251001` still prices correctly). All three wrapper
+functions (`claude_summary()`, `reformat_transcript()`, `translate_transcript()`)
+return cost as their third tuple element *even when the result is rejected*
+by a sanity check — the API call was still billed regardless of whether the
+output passed. `enrich_youtube.main()` sums these into `api_cost` and
+`build_note()` writes it to the note's frontmatter.
 
 **`reprocess.py`** flips enriched notes back to `processed: false` and moves
 them to the vault root so the next run rebuilds them — by filename, `--url`,
