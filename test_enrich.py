@@ -425,6 +425,7 @@ max_transcript_minutes: 45
 transcript_retries: 2
 model_summary: claude-sonnet-5
 model_reformat: claude-haiku-4-5-20251001
+model_translate: claude-opus-5
 
 ## Default
 focus: General summary.
@@ -445,15 +446,16 @@ Custom short instructions.
         self.parsed = auto.parse_settings(self.SETTINGS)
 
     def test_scalar_settings(self):
-        use_claude, max_min, retries, model_summary, model_reformat, _, _, _ = self.parsed
+        use_claude, max_min, retries, model_summary, model_reformat, model_translate, _, _, _ = self.parsed
         self.assertTrue(use_claude)
         self.assertEqual(max_min, 45)
         self.assertEqual(retries, 2)
         self.assertEqual(model_summary, "claude-sonnet-5")
         self.assertEqual(model_reformat, "claude-haiku-4-5-20251001")
+        self.assertEqual(model_translate, "claude-opus-5")
 
     def test_prompt_sections_are_captured_verbatim(self):
-        summary_instr, short_instr = self.parsed[5], self.parsed[6]
+        summary_instr, short_instr = self.parsed[6], self.parsed[7]
         self.assertEqual(summary_instr,
                          "Custom summary instructions.\nSecond line of them.")
         self.assertEqual(short_instr, "Custom short instructions.")
@@ -461,14 +463,14 @@ Custom short instructions.
     def test_prompt_sections_are_not_topic_sections(self):
         # They have no keywords/focus, so leaving them in would let a video
         # title containing e.g. "prompt" match them as a topic.
-        names = [s["name"] for s in self.parsed[7]]
+        names = [s["name"] for s in self.parsed[8]]
         self.assertNotIn("Summary Prompt", names)
         self.assertNotIn("Short Summary Prompt", names)
 
     def test_default_section_is_retained(self):
         # Regression: an early version excluded Default alongside the prompt
         # sections, which silently dropped the fallback focus entirely.
-        names = [s["name"] for s in self.parsed[7]]
+        names = [s["name"] for s in self.parsed[8]]
         self.assertIn("Default", names)
         self.assertIn("AI Topic", names)
 
@@ -484,13 +486,13 @@ Custom short instructions.
             self.assertFalse(auto.parse_settings(f"use_claude: {value}\n")[0], value)
 
     def test_keywords_are_lowercased_and_split(self):
-        section = next(s for s in self.parsed[7] if s["name"] == "AI Topic")
+        section = next(s for s in self.parsed[8] if s["name"] == "AI Topic")
         self.assertEqual(section["keywords"], ["ai", "llm", "claude"])
 
 
 class TestFocusGetter(unittest.TestCase):
     def setUp(self):
-        self.sections = auto.parse_settings(TestParseSettings.SETTINGS)[7]
+        self.sections = auto.parse_settings(TestParseSettings.SETTINGS)[8]
         self.getter = auto.make_focus_getter(self.sections)
 
     def _focus(self, meta):
@@ -523,7 +525,7 @@ class TestFocusGetter(unittest.TestCase):
 
 class TestTopicGetter(unittest.TestCase):
     def setUp(self):
-        self.sections = auto.parse_settings(TestParseSettings.SETTINGS)[7]
+        self.sections = auto.parse_settings(TestParseSettings.SETTINGS)[8]
         self.getter = auto.make_topic_getter(self.sections)
 
     def test_keyword_match_returns_the_section_name(self):

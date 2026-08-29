@@ -67,7 +67,7 @@ PROMPT_SECTIONS = {"summary prompt", "short summary prompt"}
 
 
 def parse_settings(text):
-    """Returns (use_claude: bool, max_transcript_minutes: int|None, transcript_retries: int|None, model_summary: str|None, model_reformat: str|None, summary_instructions: str|None, short_summary_instructions: str|None, sections: list[dict{name, keywords, focus}])."""
+    """Returns (use_claude: bool, max_transcript_minutes: int|None, transcript_retries: int|None, model_summary: str|None, model_reformat: str|None, model_translate: str|None, summary_instructions: str|None, short_summary_instructions: str|None, sections: list[dict{name, keywords, focus}])."""
     use_claude_m = re.search(r"^use_claude:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
     use_claude = bool(use_claude_m and use_claude_m.group(1).lower() in ("yes", "true", "on", "1"))
 
@@ -82,6 +82,9 @@ def parse_settings(text):
 
     model_reformat_m = re.search(r"^model_reformat:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
     model_reformat = model_reformat_m.group(1).strip() if model_reformat_m else None
+
+    model_translate_m = re.search(r"^model_translate:\s*(\S+)", text, re.MULTILINE | re.IGNORECASE)
+    model_translate = model_translate_m.group(1).strip() if model_translate_m else None
 
     # split into (name, body) per "## Heading" section
     headers = list(SECTION_RE.finditer(text))
@@ -111,7 +114,7 @@ def parse_settings(text):
     sections = [s for s in sections if s["name"].lower() not in PROMPT_SECTIONS]
 
     return (use_claude, max_transcript_minutes, transcript_retries, model_summary, model_reformat,
-            summary_instructions, short_summary_instructions, sections)
+            model_translate, summary_instructions, short_summary_instructions, sections)
 
 
 def _matches_topic(haystack, keywords):
@@ -161,7 +164,7 @@ def main():
 
     text = SETTINGS_FILE.read_text(encoding="utf-8")
     (use_claude, max_transcript_minutes, transcript_retries, model_summary, model_reformat,
-     summary_instructions, short_summary_instructions, sections) = parse_settings(text)
+     model_translate, summary_instructions, short_summary_instructions, sections) = parse_settings(text)
 
     core.USE_CLAUDE = use_claude
     if max_transcript_minutes is not None:
@@ -172,6 +175,8 @@ def main():
         core.CLAUDE_MODEL = model_summary
     if model_reformat:
         core.REFORMAT_MODEL = model_reformat
+    if model_translate:
+        core.TRANSLATE_MODEL = model_translate
     core.SUMMARY_INSTRUCTIONS = summary_instructions or ""
     core.SHORT_SUMMARY_INSTRUCTIONS = short_summary_instructions or ""
 
@@ -181,6 +186,7 @@ def main():
     print(f"Transcript rate-limit retries: {len(core.TRANSCRIPT_RETRY_DELAYS)}")
     print(f"Summary model: {core.CLAUDE_MODEL}")
     print(f"Reformat model: {core.REFORMAT_MODEL}")
+    print(f"Translate model: {core.TRANSLATE_MODEL}")
     if use_claude and not summary_instructions:
         print('  ! no "## Summary Prompt" section in settings — summaries will use '
               "minimal bullet/VERDICT framing only, no editorial guidance")
