@@ -120,9 +120,22 @@ silently translated out of the source language — both have happened), so
 `detect_language()` fingerprint against the input, and the caller keeps the
 raw captions and flags the note rather than writing the damaged version.
 
-**`claude_api.py`** owns the actual Anthropic Messages API call for both
-`claude_summary()` and `reformat_transcript()` (plain `requests` POST, not
-the `anthropic` SDK — `requests` stays the only non-stdlib dependency).
+**`translate_transcript.py`** turns a freshly-fetched, already-reformatted
+transcript into French via Claude, for any video whose native language is
+neither English nor French — used so the vault always gets a French-language
+transcript without ever asking YouTube for an auto-translated caption track
+(that endpoint throttles far harder than native captions; see
+`fetch_transcript()`'s docstring). Same `(text, problem)` shape as
+`reformat_transcript()`, with its own `check_translation()`: word-count ratio
+plus `detect_language()` (imported from `reformat_transcript.py`) confirming
+the output actually reads as French, not a silent no-op. Only ever applied to
+a freshly-fetched transcript, never a reused one (an existing/Web-Clipper
+transcript's language isn't known).
+
+**`claude_api.py`** owns the actual Anthropic Messages API call for
+`claude_summary()`, `reformat_transcript()`, and `translate_transcript()`
+(plain `requests` POST, not the `anthropic` SDK — `requests` stays the only
+non-stdlib dependency).
 `call_claude()` retries timeouts/429/5xx with backoff and fails fast on 4xx
 (bad key, unknown model), returning `(text, stop_reason)` so callers can
 detect `max_tokens` truncation. This exists because a single un-retried
@@ -166,7 +179,8 @@ fresh transcript, verdict, and summary — rather than reusing what's still in
 - **`_youtube_settings.md` lives in two places**: this repo's copy is a
   template; the live config Claude/the scripts actually read is the copy
   the user keeps in their vault root (`core.VAULT / "_youtube_settings.md"`).
-- Model name strings (`claude-sonnet-5`) are duplicated in
-  `enrich_youtube.py` and `reformat_transcript.py` — check
-  https://docs.claude.com/en/docs/about-claude/models before assuming
-  either is current when debugging summary/reformat issues.
+- Model name strings (`claude-sonnet-5`) are duplicated across
+  `enrich_youtube.py`, `reformat_transcript.py`, and `translate_transcript.py`
+  — check https://docs.claude.com/en/docs/about-claude/models before
+  assuming any of them is current when debugging summary/reformat/translate
+  issues.

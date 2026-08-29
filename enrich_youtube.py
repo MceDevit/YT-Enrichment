@@ -36,6 +36,7 @@ import requests
 
 from claude_api import ClaudeError, call_claude
 from reformat_transcript import reformat_transcript
+from translate_transcript import translate_transcript
 
 # ------------------------------------------------------------------ config ----
 VAULT_PATH_FILE = Path(__file__).resolve().parent / "vault_path.txt"
@@ -82,6 +83,7 @@ USE_CLAUDE  = False                         # True to add an AI summary
 # https://docs.claude.com/en/docs/about-claude/models
 CLAUDE_MODEL = "claude-sonnet-5"            # used for the summary + verdict
 REFORMAT_MODEL = "claude-haiku-4-5-20251001"  # used for transcript cleanup
+TRANSLATE_MODEL = "claude-haiku-4-5-20251001"  # used for non-en/fr -> French transcript translation
 CLAUDE_MAX_TOKENS = 1500                    # 700 was too tight — hit the cap on an
                                               # ordinary 15min video and dropped the verdict
 # -----------------------------------------------------------------------------
@@ -149,12 +151,12 @@ class TranscriptRateLimited(Exception):
 
 
 def transcript_target_lang(language):
-    """Which caption language to request for this video's transcript.
-
-    English and French videos keep their own native track. Anything else
-    gets YouTube's auto-translated French track instead — the user reads
-    French, not the source language. Returns None when the API didn't
-    report a language, so the caller falls back to LANG.
+    """The transcript's desired *final* language — not what we ask yt-dlp
+    for (fetch_transcript always requests the video's own native track; see
+    its docstring for why), but what translate_transcript() should turn it
+    into afterwards via Claude. English and French videos are left alone;
+    anything else targets French. Returns None when the API didn't report a
+    language, meaning we can't tell and skip translation.
     """
     if not language:
         return None
@@ -166,17 +168,19 @@ def fetch_transcript(url, language=None):
     """Return plain-text transcript, or '' if no captions exist.
 
     `language` is the video's own default audio language (from the YouTube
-    Data API, when available). We request only the single target language
-    from transcript_target_lang() instead of the full LANG fallback list —
-    for a non-English video like a French one, requesting "en,fr" makes
-    yt-dlp fetch its native `fr` track *and* YouTube's auto-translated `en`
-    track, and that translation endpoint is throttled harder than native
-    captions. Requesting just `fr` skips the translated track entirely,
-    roughly halving requests and avoiding the harsher-throttled endpoint —
-    this is the main fix for 429s that cluster on non-English videos. For a
-    video in neither English nor French (e.g. Spanish), the target is `fr`
-    too, so yt-dlp fetches YouTube's auto-translated French track instead of
-    the native one. Falls back to LANG when the API didn't report a language.
+    Data API, when available). We request only that single native language
+    instead of the full LANG fallback list — for a non-English video like a
+    French one, requesting "en,fr" makes yt-dlp fetch its native `fr` track
+    *and* YouTube's auto-translated `en` track, and that translation
+    endpoint is throttled harder than native captions. Requesting just `fr`
+    skips the translated track entirely, roughly halving requests and
+    avoiding the harsher-throttled endpoint — this is the main fix for 429s
+    that cluster on non-English videos. This function NEVER requests a
+    translated track, even when the caller wants a French transcript out of
+    e.g. a Portuguese video — that translation happens afterwards via
+    Claude (see translate_transcript()), specifically to keep this function
+    from ever touching the throttled endpoint. Falls back to LANG when the
+    API didn't report a language.
 
     The API reports BCP-47 codes like "fr-FR", but yt-dlp's caption track
     codes are bare ("fr", "fr-orig") — matching the raw API value against
@@ -188,9 +192,9 @@ def fetch_transcript(url, language=None):
     callers should leave the item untouched so it's retried on the next run,
     rather than finalizing a note with a permanently-missing transcript.
     """
-    target = transcript_target_lang(language)
-    if target:
-        sub_langs = f"^{target}$"
+    if language:
+        base_lang = language.split("-")[0]
+        sub_langs = f"^{base_lang}$"
     else:
         sub_langs = LANG
     delays = list(TRANSCRIPT_RETRY_DELAYS) + [None]  # None = last attempt, no more retries
@@ -592,6 +596,7 @@ def main(focus_getter=None, topic_getter=None):
                 if not needs_fresh_transcript(src_text):
                     existing_transcript = extract_existing_transcript(src_text)
 
+            fetched_fresh = False
             if existing_transcript:
                 if looks_raw(existing_transcript):
                     print(f"  (transcript already in the note, but looks like raw "
@@ -611,11 +616,8 @@ def main(focus_getter=None, topic_getter=None):
                 summary_language = meta.get("language")
             else:
                 transcript = fetch_transcript(url, language=meta.get("language"))
-                # reflects what fetch_transcript actually requested (e.g. a
-                # Spanish video's transcript comes back in French), so the
-                # summary is written in the language the transcript is in,
-                # not the video's original audio language.
-                summary_language = transcript_target_lang(meta.get("language")) or meta.get("language")
+                fetched_fresh = True
+                summary_language = meta.get("language")  # updated below if translation succeeds
                 if not transcript:
                     warnings.append("no captions available for this video")
 
@@ -627,6 +629,21 @@ def main(focus_getter=None, topic_getter=None):
                         reformatted = True
                     elif problem:
                         warnings.append(f"transcript left as raw captions — {problem}")
+                # Only for a freshly-fetched transcript (never a reused one —
+                # its language is unknown) whose native language isn't
+                # already English or French: translate it to French via
+                # Claude rather than asking YouTube for a translated caption
+                # track, which fetch_transcript() deliberately never does
+                # (that endpoint is throttled far harder — see its docstring).
+                if (USE_CLAUDE and fetched_fresh
+                        and transcript_target_lang(meta.get("language")) == "fr"
+                        and (meta.get("language") or "").split("-")[0].lower() != "fr"):
+                    translated, problem = translate_transcript(transcript, model=TRANSLATE_MODEL)
+                    if translated:
+                        transcript = translated
+                        summary_language = "fr"
+                    elif problem:
+                        warnings.append(f"transcript left untranslated — {problem}")
                 transcript_done_at = datetime.now().strftime("%Y-%m-%d %H:%M")
             focus = focus_getter(meta) if focus_getter else None
             topic = topic_getter(meta) if topic_getter else None

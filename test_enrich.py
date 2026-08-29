@@ -37,6 +37,7 @@ import enrich_youtube as core  # noqa: E402
 import enrich_youtube_auto as auto  # noqa: E402
 import reformat_transcript as rt  # noqa: E402
 import reprocess  # noqa: E402
+import translate_transcript as tt  # noqa: E402
 
 # Realistic prose samples for the language checks. These need to be long enough
 # to clear detect_language()'s 30-word floor and function-word-density check.
@@ -668,6 +669,43 @@ class TestReformatTranscriptWrapper(unittest.TestCase):
         with mock.patch.object(rt, "call_claude", return_value=(good, "end_turn")):
             text, problem = rt.reformat_transcript(FRENCH_TEXT)
         self.assertEqual(text, good)
+        self.assertIsNone(problem)
+
+
+class TestTranslateTranscriptWrapper(unittest.TestCase):
+    """translate_transcript() must never hand back output that failed a check —
+    the caller keeps the untranslated transcript instead."""
+
+    def test_blank_input_is_a_no_op(self):
+        self.assertEqual(tt.translate_transcript(""), ("", None))
+        self.assertEqual(tt.translate_transcript("   "), ("", None))
+
+    def test_token_cap_truncation_is_rejected(self):
+        with mock.patch.object(tt, "call_claude",
+                               return_value=("partial", "max_tokens")), quiet():
+            text, problem = tt.translate_transcript(ENGLISH_TEXT)
+        self.assertEqual(text, "")
+        self.assertIn("token cap", problem)
+
+    def test_untranslated_output_is_rejected(self):
+        # Claude echoed the source back instead of translating it to French.
+        with mock.patch.object(tt, "call_claude",
+                               return_value=(ENGLISH_TEXT, "end_turn")), quiet():
+            text, problem = tt.translate_transcript(ENGLISH_TEXT)
+        self.assertEqual(text, "")
+        self.assertIn("French", problem)
+
+    def test_api_failure_is_reported_not_raised(self):
+        with mock.patch.object(tt, "call_claude",
+                               side_effect=tt.ClaudeError("boom")), quiet():
+            text, problem = tt.translate_transcript(ENGLISH_TEXT)
+        self.assertEqual(text, "")
+        self.assertIn("boom", problem)
+
+    def test_good_translation_passes_through(self):
+        with mock.patch.object(tt, "call_claude", return_value=(FRENCH_TEXT, "end_turn")):
+            text, problem = tt.translate_transcript(ENGLISH_TEXT)
+        self.assertEqual(text, FRENCH_TEXT)
         self.assertIsNone(problem)
 
 
