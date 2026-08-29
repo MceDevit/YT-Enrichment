@@ -144,6 +144,7 @@ class TestVerdictCallout(unittest.TestCase):
         self.assertEqual(core.verdict_callout("Yes — great"), "success")
         self.assertEqual(core.verdict_callout("Maybe — depends"), "warning")
         self.assertEqual(core.verdict_callout("No — skip it"), "danger")
+        self.assertEqual(core.verdict_callout("Read — summary covers it"), "info")
 
     def test_french_verdicts_map_to_the_same_colours(self):
         # Added when French summaries shipped; without these every French
@@ -151,6 +152,7 @@ class TestVerdictCallout(unittest.TestCase):
         self.assertEqual(core.verdict_callout("Oui — excellent"), "success")
         self.assertEqual(core.verdict_callout("Peut-être — bof"), "warning")
         self.assertEqual(core.verdict_callout("Non — sans intérêt"), "danger")
+        self.assertEqual(core.verdict_callout("Lire — le résumé suffit"), "info")
 
     def test_case_insensitive(self):
         self.assertEqual(core.verdict_callout("YES — loud"), "success")
@@ -160,6 +162,29 @@ class TestVerdictCallout(unittest.TestCase):
         self.assertEqual(core.verdict_callout("Perhaps, hard to say"), "danger")
         self.assertEqual(core.verdict_callout(""), "danger")
         self.assertEqual(core.verdict_callout(None), "danger")
+
+
+class TestExtractBooks(unittest.TestCase):
+    def test_extracts_multiple_book_lines(self):
+        books, cleaned = core.extract_books(
+            "- point one\n\nBOOK: Atomic Habits — James Clear\nBOOK: Deep Work — Cal Newport"
+        )
+        self.assertEqual(books, ["Atomic Habits — James Clear", "Deep Work — Cal Newport"])
+        self.assertNotIn("BOOK", cleaned)
+        self.assertIn("point one", cleaned)
+
+    def test_extracts_book_wrapped_in_bullet_and_bold(self):
+        books, _ = core.extract_books("- a\n- **BOOK: Sapiens — Yuval Noah Harari**")
+        self.assertEqual(books, ["Sapiens — Yuval Noah Harari"])
+
+    def test_returns_empty_list_when_absent(self):
+        books, cleaned = core.extract_books("- just bullets, no books")
+        self.assertEqual(books, [])
+        self.assertEqual(cleaned, "- just bullets, no books")
+
+    def test_handles_empty_and_none(self):
+        self.assertEqual(core.extract_books(""), ([], ""))
+        self.assertEqual(core.extract_books(None), ([], ""))
 
 
 class TestLooksRaw(unittest.TestCase):
@@ -218,6 +243,20 @@ class TestAlreadyProcessed(unittest.TestCase):
         self.assertFalse(core.already_processed("I processed: true story, honestly\n"))
 
 
+class TestTranscriptTargetLang(unittest.TestCase):
+    def test_english_and_french_keep_their_own_track(self):
+        self.assertEqual(core.transcript_target_lang("en"), "en")
+        self.assertEqual(core.transcript_target_lang("fr-FR"), "fr")
+
+    def test_other_languages_are_translated_to_french(self):
+        self.assertEqual(core.transcript_target_lang("es"), "fr")
+        self.assertEqual(core.transcript_target_lang("de-DE"), "fr")
+
+    def test_missing_language_returns_none(self):
+        self.assertIsNone(core.transcript_target_lang(None))
+        self.assertIsNone(core.transcript_target_lang(""))
+
+
 class TestDetectLanguage(unittest.TestCase):
     def test_identifies_french_and_english(self):
         self.assertEqual(rt.detect_language(FRENCH_TEXT), "fr")
@@ -271,6 +310,14 @@ class TestBuildNote(unittest.TestCase):
     META = {"title": "A Video", "channel": "Chan", "channel_id": "UC123",
             "url": "https://youtu.be/abc", "duration": "10:00"}
 
+    def test_topic_adds_a_nested_tag(self):
+        note = core.build_note(self.META, "t", "s", topic="Home Automation")
+        self.assertIn("tags: [youtube, topic/home-automation]", note)
+
+    def test_no_topic_keeps_the_plain_tag(self):
+        note = core.build_note(self.META, "t", "s")
+        self.assertIn("tags: [youtube]", note)
+
     def test_clean_note_is_reviewed_with_no_warning_block(self):
         note = core.build_note(self.META, "transcript", "summary", verdict="Yes — good")
         self.assertIn(f"status: {core.STATUS_DONE}", note)
@@ -294,6 +341,17 @@ class TestBuildNote(unittest.TestCase):
     def test_short_without_verdict_gets_the_info_callout(self):
         note = core.build_note(self.META, "t", "s", is_short=True)
         self.assertIn("> [!info] Short video", note)
+
+    def test_books_render_as_a_list_when_present(self):
+        note = core.build_note(self.META, "t", "s",
+                               books=["Atomic Habits — James Clear", "Deep Work — Cal Newport"])
+        self.assertIn("## Books mentioned", note)
+        self.assertIn("- Atomic Habits — James Clear", note)
+        self.assertIn("- Deep Work — Cal Newport", note)
+
+    def test_no_books_section_when_none_mentioned(self):
+        note = core.build_note(self.META, "t", "s", books=[])
+        self.assertNotIn("## Books mentioned", note)
 
     def test_model_lines_only_appear_when_the_step_ran(self):
         without = core.build_note(self.META, "t", "s")
@@ -409,6 +467,34 @@ class TestFocusGetter(unittest.TestCase):
     def test_matching_is_case_insensitive(self):
         self.assertEqual(self._focus({"title": "ALL ABOUT AI", "channel": ""}),
                          "AI-specific focus.")
+
+
+class TestTopicGetter(unittest.TestCase):
+    def setUp(self):
+        self.sections = auto.parse_settings(TestParseSettings.SETTINGS)[7]
+        self.getter = auto.make_topic_getter(self.sections)
+
+    def test_keyword_match_returns_the_section_name(self):
+        self.assertEqual(self.getter({"title": "Using Claude for work", "channel": ""}),
+                         "AI Topic")
+
+    def test_no_match_returns_none(self):
+        self.assertIsNone(self.getter({"title": "Baking bread", "channel": "Food"}))
+
+    def test_default_section_is_never_returned_as_a_topic(self):
+        # Default is a catch-all, not a subject worth tagging notes with.
+        self.assertIsNone(self.getter({"title": "Anything at all", "channel": ""}))
+
+
+class TestTopicTag(unittest.TestCase):
+    def test_slugifies_spaces_and_case(self):
+        self.assertEqual(core.topic_tag("Home Automation"), "topic/home-automation")
+
+    def test_strips_punctuation(self):
+        self.assertEqual(core.topic_tag("AI/ML & Robotics!"), "topic/ai-ml-robotics")
+
+    def test_blank_topic_returns_none(self):
+        self.assertIsNone(core.topic_tag("   "))
 
 
 class TestCallClaudeRetries(unittest.TestCase):

@@ -26,6 +26,12 @@ Settings file format:
     keywords: ...
     focus: ...
 
+A matched topic section also tags the note `topic/<name>` (e.g. "Home
+Automation" -> `topic/home-automation`), independent of use_claude — this
+links every video on that subject together via Obsidian's tag pane, even
+with summaries off. "Default" is never tagged, since it's a catch-all, not
+a subject.
+
     ## Summary Prompt
     <the editorial instructions for the summary prompt on regular (non-Short)
     videos — bullet count, prioritization, verdict criteria, tone, etc. This
@@ -123,6 +129,23 @@ def make_focus_getter(sections):
     return get_focus
 
 
+def make_topic_getter(sections):
+    """Same keyword matching as make_focus_getter, but returns the matched
+    section's own name instead of its focus text — used to tag the note
+    `topic/<name>` so every video on that subject links together in
+    Obsidian. "Default" never matches: it's a catch-all, not a subject."""
+    topic_sections = [s for s in sections if s["name"].lower() != "default"]
+
+    def get_topic(meta):
+        haystack = (meta.get("title", "") + " " + meta.get("channel", "")).lower()
+        for s in topic_sections:
+            if any(kw and kw in haystack for kw in s["keywords"]):
+                return s["name"]
+        return None
+
+    return get_topic
+
+
 def main():
     if not SETTINGS_FILE.exists():
         print(f"No settings file found at:\n  {SETTINGS_FILE}")
@@ -163,7 +186,8 @@ def main():
     else:
         print()
 
-    core.main(focus_getter=make_focus_getter(sections) if use_claude else None)
+    core.main(focus_getter=make_focus_getter(sections) if use_claude else None,
+              topic_getter=make_topic_getter(sections))
 
 
 if __name__ == "__main__":

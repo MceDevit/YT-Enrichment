@@ -148,19 +148,35 @@ class TranscriptRateLimited(Exception):
     """Raised when yt-dlp still hits a 429 after all retries are exhausted."""
 
 
+def transcript_target_lang(language):
+    """Which caption language to request for this video's transcript.
+
+    English and French videos keep their own native track. Anything else
+    gets YouTube's auto-translated French track instead — the user reads
+    French, not the source language. Returns None when the API didn't
+    report a language, so the caller falls back to LANG.
+    """
+    if not language:
+        return None
+    base_lang = language.split("-")[0].lower()
+    return base_lang if base_lang in ("en", "fr") else "fr"
+
+
 def fetch_transcript(url, language=None):
     """Return plain-text transcript, or '' if no captions exist.
 
     `language` is the video's own default audio language (from the YouTube
-    Data API, when available). When set, we request only that language
-    instead of the full LANG fallback list — for a non-English video like a
-    French one, requesting "en,fr" makes yt-dlp fetch its native `fr` track
-    *and* YouTube's auto-translated `en` track, and that translation
-    endpoint is throttled harder than native captions. Requesting just `fr`
-    skips the translated track entirely, roughly halving requests and
-    avoiding the harsher-throttled endpoint — this is the main fix for 429s
-    that cluster on non-English videos. Falls back to LANG when the API
-    didn't report a language.
+    Data API, when available). We request only the single target language
+    from transcript_target_lang() instead of the full LANG fallback list —
+    for a non-English video like a French one, requesting "en,fr" makes
+    yt-dlp fetch its native `fr` track *and* YouTube's auto-translated `en`
+    track, and that translation endpoint is throttled harder than native
+    captions. Requesting just `fr` skips the translated track entirely,
+    roughly halving requests and avoiding the harsher-throttled endpoint —
+    this is the main fix for 429s that cluster on non-English videos. For a
+    video in neither English nor French (e.g. Spanish), the target is `fr`
+    too, so yt-dlp fetches YouTube's auto-translated French track instead of
+    the native one. Falls back to LANG when the API didn't report a language.
 
     The API reports BCP-47 codes like "fr-FR", but yt-dlp's caption track
     codes are bare ("fr", "fr-orig") — matching the raw API value against
@@ -172,9 +188,9 @@ def fetch_transcript(url, language=None):
     callers should leave the item untouched so it's retried on the next run,
     rather than finalizing a note with a permanently-missing transcript.
     """
-    if language:
-        base_lang = language.split("-")[0]
-        sub_langs = f"^{base_lang}$"
+    target = transcript_target_lang(language)
+    if target:
+        sub_langs = f"^{target}$"
     else:
         sub_langs = LANG
     delays = list(TRANSCRIPT_RETRY_DELAYS) + [None]  # None = last attempt, no more retries
@@ -224,9 +240,9 @@ def fmt_duration(seconds):
 # Prompt" sections and assigns them onto this module before calling main(),
 # same pattern as USE_CLAUDE/CLAUDE_MODEL. Empty by default: a caller that
 # never sets these (e.g. enrich_youtube_interactive.py) gets a minimal
-# prompt with no editorial guidance, just the bare bullet/VERDICT framing
-# below. The VERDICT: formatting requirement stays hardcoded regardless,
-# since extract_verdict()/verdict_callout() parse that literal format.
+# prompt with no editorial guidance, just the bare bullet/VERDICT/BOOK framing
+# below. The VERDICT:/BOOK: formatting requirements stay hardcoded regardless,
+# since extract_verdict()/verdict_callout()/extract_books() parse that literal format.
 SUMMARY_INSTRUCTIONS = ""
 SHORT_SUMMARY_INSTRUCTIONS = ""
 
@@ -248,9 +264,14 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
     language_line = (
         "Write the summary bullets and the verdict reason in French, since this "
         "video is in French. Keep the literal 'VERDICT: ' prefix in English, but "
-        "follow it with Oui/Non/Peut-être and a French reason "
+        "follow it with Oui/Non/Peut-être/Lire and a French reason "
         "(e.g. 'VERDICT: Oui — raison').\n\n"
         if is_french else ""
+    )
+    book_line = (
+        "If any books are mentioned by name, list each on its own line prefixed with "
+        "'BOOK: ' (e.g. 'BOOK: Atomic Habits — James Clear', including the author if "
+        "stated). If no books are mentioned, omit this entirely — don't write 'BOOK: none'.\n\n"
     )
     if is_short:
         # Shorts are already quick to watch, so a "worth watching in full?"
@@ -259,6 +280,7 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
             f'Summarize this YouTube Short titled "{title}" in 1-3 short, tight bullet points, '
             "capturing just the core idea or takeaway."
             + focus_line + language_line + SHORT_SUMMARY_INSTRUCTIONS + "\n\n"
+            + book_line +
             "Transcript:\n\n" + transcript[:100_000]
         )
     else:
@@ -266,7 +288,11 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
             f'Summarize this YouTube video titled "{title}" in 4-6 short, tight bullet points.'
             + focus_line + language_line + SUMMARY_INSTRUCTIONS + "\n\n"
             "After the bullets, on its own line, repeat just that verdict prefixed with 'VERDICT: ' "
-            "(e.g. 'VERDICT: Yes — reason' or 'VERDICT: No — reason' or 'VERDICT: Maybe — reason').\n\n"
+            "(e.g. 'VERDICT: Yes — reason' or 'VERDICT: No — reason' or 'VERDICT: Maybe — reason'). "
+            "If the video itself isn't worth watching but the bullets above already capture "
+            "everything worth knowing, use 'VERDICT: Read — reason' instead of 'No' — that tells "
+            "the reader to skip the video but still read the summary.\n\n"
+            + book_line +
             "Transcript:\n\n" + transcript[:100_000]
         )
     try:
@@ -316,28 +342,56 @@ def extract_verdict(summary):
     return verdict, cleaned
 
 
+BOOK_RE = re.compile(r"^[\s>*•\-]*BOOK:\s*(.+?)\**\s*$", re.MULTILINE | re.IGNORECASE)
+
+
+def extract_books(summary):
+    """Pulls any 'BOOK: ...' lines out of the summary. Returns (books, summary_without_them),
+    where books is a list of "Title — Author" strings (possibly empty, never None)."""
+    books = [m.strip() for m in BOOK_RE.findall(summary or "")]
+    cleaned = BOOK_RE.sub("", summary or "")
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return books, cleaned
+
+
 def sanitize(name):
     name = re.sub(r'[\\/:*?"<>|#^\[\]]', "", name)
     return re.sub(r"\s+", " ", name).strip()[:120] or "video"
 
 
-VERDICT_CALLOUT_RE = re.compile(r"^\s*(yes|maybe|no|oui|peut-être|non)\b", re.IGNORECASE)
+def topic_tag(topic):
+    """Turns a topic name (e.g. "Home Automation") into an Obsidian-safe
+    nested tag suffix ("home-automation") — Obsidian tags can't contain
+    spaces, so clicking `#topic/home-automation` is what links every video
+    on that subject together."""
+    slug = re.sub(r"[^\w-]+", "-", topic.strip().lower()).strip("-")
+    return f"topic/{slug}" if slug else None
+
+
+VERDICT_CALLOUT_RE = re.compile(r"^\s*(yes|maybe|no|read|oui|peut-être|non|lire)\b", re.IGNORECASE)
 VERDICT_CALLOUTS = {
-    "yes": "success", "maybe": "warning", "no": "danger",
-    "oui": "success", "peut-être": "warning", "non": "danger",
+    "yes": "success", "maybe": "warning", "no": "danger", "read": "info",
+    "oui": "success", "peut-être": "warning", "non": "danger", "lire": "info",
 }
 
 
 def verdict_callout(verdict):
-    """Maps a verdict's leading Yes/Maybe/No to an Obsidian callout type
-    (green/orange/red respectively). Falls back to 'danger' if unrecognized."""
+    """Maps a verdict's leading Yes/Maybe/No/Read to an Obsidian callout type
+    (green/orange/red/blue respectively) — 'Read' is the "skip the video but
+    the summary alone is worth it" case, kept visually distinct (blue, not
+    red) from 'No' so it doesn't read as "skip this note entirely" too.
+    Falls back to 'danger' if unrecognized."""
     m = VERDICT_CALLOUT_RE.match(verdict or "")
     return VERDICT_CALLOUTS.get(m.group(1).lower(), "danger") if m else "danger"
 
 
 def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
                 reformatted=False, summarized=False, transcript_done_at=None, is_short=False,
-                warnings=None):
+                warnings=None, books=None, topic=None):
+    tags = ["youtube"]
+    tag = topic_tag(topic) if topic else None
+    if tag:
+        tags.append(tag)
     fm = [
         "---",
         f'title: "{meta["title"].replace(chr(34), chr(39))}"',
@@ -346,7 +400,7 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
         f'url: {meta["url"]}',
         f'duration: {meta["duration"]}',
         f"date_watched: {date.today().isoformat()}",
-        "tags: [youtube]",
+        f"tags: [{', '.join(tags)}]",
         f"status: {STATUS_ATTENTION if warnings else STATUS_DONE}",
         "processed: true",
     ]
@@ -370,6 +424,10 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
         fm += ["> [!info] Short video — no worth-watching verdict needed.", ""]
     if summary:
         fm += ["## Summary", "", summary, ""]
+    if books:
+        fm += ["## Books mentioned", ""]
+        fm += [f"- {b}" for b in books]
+        fm.append("")
     fm += ["## My notes", "- ", ""]
     fm += ["## Transcript", "", transcript or transcript_note or "_No transcript available._", ""]
     return "\n".join(fm)
@@ -474,12 +532,18 @@ def collect_urls():
                 yield m.group(0), note
 
 
-def main(focus_getter=None):
+def main(focus_getter=None, topic_getter=None):
     """
     focus_getter: optional callable(meta) -> str | None
     Called once per video, right before summarizing, so a caller (e.g. the
     interactive wrapper) can ask "any particular focus for this one?" and
     steer that video's summary. Ignored if USE_CLAUDE is False.
+
+    topic_getter: optional callable(meta) -> str | None
+    Called once per video to get a subject name (e.g. "Home Automation")
+    used to tag the note `topic/<slug>` so every video on that subject is
+    one click away from every other in Obsidian. Independent of USE_CLAUDE —
+    it's plain keyword matching, no API call involved.
     """
     INBOX.mkdir(parents=True, exist_ok=True)
     REVIEWED.mkdir(parents=True, exist_ok=True)
@@ -514,6 +578,7 @@ def main(focus_getter=None):
                 else:
                     print(f"  (transcript already in the note — using it, skipping fetch)")
                 transcript = existing_transcript
+                summary_language = meta.get("language")
             elif meta["duration_seconds"] > MAX_TRANSCRIPT_SECONDS:
                 print(f"  (skipping transcript — {meta['duration']} exceeds "
                       f"{MAX_TRANSCRIPT_SECONDS // 60}min limit)")
@@ -522,8 +587,14 @@ def main(focus_getter=None):
                 # Deliberate, per max_transcript_minutes — not a degradation,
                 # so this note stays `reviewed` rather than needs-attention.
                 transcript_skipped_on_purpose = True
+                summary_language = meta.get("language")
             else:
                 transcript = fetch_transcript(url, language=meta.get("language"))
+                # reflects what fetch_transcript actually requested (e.g. a
+                # Spanish video's transcript comes back in French), so the
+                # summary is written in the language the transcript is in,
+                # not the video's original audio language.
+                summary_language = transcript_target_lang(meta.get("language")) or meta.get("language")
                 if not transcript:
                     warnings.append("no captions available for this video")
 
@@ -537,8 +608,9 @@ def main(focus_getter=None):
                         warnings.append(f"transcript left as raw captions — {problem}")
                 transcript_done_at = datetime.now().strftime("%Y-%m-%d %H:%M")
             focus = focus_getter(meta) if focus_getter else None
+            topic = topic_getter(meta) if topic_getter else None
             summary, problem = claude_summary(meta["title"], transcript, focus=focus,
-                                               language=meta.get("language"), is_short=is_short)
+                                               language=summary_language, is_short=is_short)
             # Skip the summary's own complaint when there was never a transcript
             # to work from: either that was deliberate (length limit), or the
             # missing captions are already recorded above — no need to say it twice.
@@ -548,10 +620,11 @@ def main(focus_getter=None):
             verdict, summary = extract_verdict(summary) if summary else (None, summary)
             if summary and not verdict and not is_short:
                 warnings.append("no verdict line in the summary")
+            books, summary = extract_books(summary) if summary else ([], summary)
             body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict,
                                reformatted=reformatted, summarized=summarized,
                                transcript_done_at=transcript_done_at, is_short=is_short,
-                               warnings=warnings)
+                               warnings=warnings, books=books, topic=topic)
 
             dest_dir = REVIEWED if MOVE_TO_REVIEWED else INBOX
             dest = dest_dir / f"{sanitize(meta['title'])}.md"
