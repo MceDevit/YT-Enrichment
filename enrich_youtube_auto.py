@@ -114,6 +114,13 @@ def parse_settings(text):
             summary_instructions, short_summary_instructions, sections)
 
 
+def _matches_topic(haystack, keywords):
+    """Word-boundary keyword match — a plain substring check would let a short
+    keyword like "ia" (meant for "Inteligência Artificial") false-positive
+    match inside an unrelated word like "Oficial", mis-tagging the video."""
+    return any(kw and re.search(rf"\b{re.escape(kw)}\b", haystack) for kw in keywords)
+
+
 def make_focus_getter(sections):
     default_focus = next((s["focus"] for s in sections if s["name"].lower() == "default"), None)
     topic_sections = [s for s in sections if s["name"].lower() != "default"]
@@ -121,7 +128,7 @@ def make_focus_getter(sections):
     def get_focus(meta):
         haystack = (meta.get("title", "") + " " + meta.get("channel", "")).lower()
         for s in topic_sections:
-            if any(kw and kw in haystack for kw in s["keywords"]):
+            if _matches_topic(haystack, s["keywords"]):
                 print(f'    (matched topic: {s["name"]})')
                 return s["focus"] or None
         return default_focus or None
@@ -139,7 +146,7 @@ def make_topic_getter(sections):
     def get_topic(meta):
         haystack = (meta.get("title", "") + " " + meta.get("channel", "")).lower()
         for s in topic_sections:
-            if any(kw and kw in haystack for kw in s["keywords"]):
+            if _matches_topic(haystack, s["keywords"]):
                 return s["name"]
         return None
 

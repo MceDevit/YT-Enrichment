@@ -468,6 +468,13 @@ class TestFocusGetter(unittest.TestCase):
         self.assertEqual(self._focus({"title": "ALL ABOUT AI", "channel": ""}),
                          "AI-specific focus.")
 
+    def test_short_keyword_does_not_match_inside_another_word(self):
+        # Real bug: channel "Hamilton de Holanda Oficial" false-matched the
+        # "ai" keyword via plain substring containment ("...ofici-AI-l...").
+        self.assertEqual(self._focus({"title": "Some song analysis",
+                                      "channel": "Hamilton de Holanda Oficial"}),
+                         "General summary.")
+
 
 class TestTopicGetter(unittest.TestCase):
     def setUp(self):
@@ -484,6 +491,10 @@ class TestTopicGetter(unittest.TestCase):
     def test_default_section_is_never_returned_as_a_topic(self):
         # Default is a catch-all, not a subject worth tagging notes with.
         self.assertIsNone(self.getter({"title": "Anything at all", "channel": ""}))
+
+    def test_short_keyword_does_not_match_inside_another_word(self):
+        self.assertIsNone(self.getter({"title": "Some song analysis",
+                                       "channel": "Hamilton de Holanda Oficial"}))
 
 
 class TestTopicTag(unittest.TestCase):
