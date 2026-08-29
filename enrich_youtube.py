@@ -87,7 +87,7 @@ CLAUDE_MAX_TOKENS = 1500                    # 700 was too tight — hit the cap 
 # -----------------------------------------------------------------------------
 
 YT_RE = re.compile(r'https?://(?:www\.|m\.)?(?:youtube\.com/(?:watch\?[^\s)"\']+|shorts/[\w-]+)|youtu\.be/[\w-]+)')
-VIDEO_ID_RE = re.compile(r"(?:youtu\.be/|watch\?v=|shorts/)([\w-]+)")
+VIDEO_ID_RE = re.compile(r"(?:youtu\.be/|shorts/)([\w-]+)|[?&]v=([\w-]+)")
 DURATION_RE = re.compile(r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?")
 
 
@@ -114,7 +114,7 @@ def fetch_meta(url):
     id_match = VIDEO_ID_RE.search(url)
     if not id_match:
         raise RuntimeError(f"couldn't extract a video id from {url}")
-    video_id = id_match.group(1)
+    video_id = id_match.group(1) or id_match.group(2)
 
     resp = requests.get(
         "https://www.googleapis.com/youtube/v3/videos",

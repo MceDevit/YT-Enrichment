@@ -83,6 +83,28 @@ def http_response(status=200, payload=None, text=""):
     return resp
 
 
+class TestVideoIdExtraction(unittest.TestCase):
+    def _id(self, url):
+        m = core.VIDEO_ID_RE.search(url)
+        return (m.group(1) or m.group(2)) if m else None
+
+    def test_v_param_not_first_in_query_string(self):
+        # Real bug: a share link with app=desktop before v= failed to match
+        # because the old regex required the literal "watch?v=" prefix.
+        self.assertEqual(
+            self._id("https://www.youtube.com/watch?app=desktop&v=DehWFTu7yMo&feature=youtu.be"),
+            "DehWFTu7yMo")
+
+    def test_v_param_first_in_query_string(self):
+        self.assertEqual(self._id("https://www.youtube.com/watch?v=abc123"), "abc123")
+
+    def test_short_url(self):
+        self.assertEqual(self._id("https://youtu.be/abc123"), "abc123")
+
+    def test_shorts_url(self):
+        self.assertEqual(self._id("https://www.youtube.com/shorts/abc123"), "abc123")
+
+
 class TestDurationAndNaming(unittest.TestCase):
     def test_parse_iso8601_duration(self):
         self.assertEqual(core.parse_iso8601_duration("PT1H2M3S"), 3723)
