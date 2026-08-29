@@ -24,6 +24,8 @@ from collections import Counter
 from datetime import date, datetime
 from pathlib import Path
 
+import env_setup  # noqa: F401 — loads ANTHROPIC_API_KEY / YOUTUBE_API_KEY from .env
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Show a helpful message instead of a traceback when the vault isn't set up —

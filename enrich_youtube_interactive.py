@@ -37,9 +37,9 @@ def main():
     if use_claude:
         if not os.environ.get("ANTHROPIC_API_KEY"):
             print(
-                "\nANTHROPIC_API_KEY is not set in your environment.\n"
-                "Run this first, then restart this script:\n"
-                '  export ANTHROPIC_API_KEY="your-key-here"\n'
+                "\nANTHROPIC_API_KEY is not set.\n"
+                "Add it to .env in this folder, then restart this script:\n"
+                '  ANTHROPIC_API_KEY="your-key-here"\n'
             )
             if not ask_yes_no("Continue anyway without summaries?"):
                 print("Stopped — no changes made.")

@@ -56,15 +56,20 @@ python3 reformat_transcript.py   # runs the __main__ sample at the bottom of the
 
 Requires `vault_path.txt` (gitignored, copy from `vault_path.txt.example`)
 pointing at a real Obsidian vault, plus `YOUTUBE_API_KEY` and (optionally)
-`ANTHROPIC_API_KEY` exported in the shell. Without a real vault + API keys,
-these scripts can't be exercised end-to-end — there's no mock/fixture mode.
+`ANTHROPIC_API_KEY` in a gitignored `.env` file in this folder (see
+`env_setup.py`, imported by `claude_api.py`/`dashboard.py` so it's loaded
+before anything reads those vars). The keys are deliberately *not* exported
+in `~/.zshrc` — that would leak them into every shell (including Claude Code
+sessions launched from it), not just this pipeline. Without a real vault +
+API keys, these scripts can't be exercised end-to-end — there's no
+mock/fixture mode.
 
 The `.command` files are Finder-double-click wrappers around the same
 scripts (pause at the end via `read -p`); the `_Headless.sh` twins drop that
-pause and explicitly `source ~/.zshrc` for non-interactive SSH invocation
-(e.g. from an iPhone Shortcut). `review_videos.py` has no headless twin — it
-blocks forever serving a local webpage, so it only makes sense run
-interactively at the Mac.
+pause for non-interactive SSH invocation (e.g. from an iPhone Shortcut) — no
+special env sourcing needed since `.env` is loaded by the Python process
+itself. `review_videos.py` has no headless twin — it blocks forever serving
+a local webpage, so it only makes sense run interactively at the Mac.
 
 ## Architecture
 

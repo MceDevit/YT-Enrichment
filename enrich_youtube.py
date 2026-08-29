@@ -16,9 +16,9 @@ Safe to run any time: it skips notes already marked `processed: true`
 
 Requires: yt-dlp (brew install yt-dlp) for transcripts, and Python 3.9+ (requests).
 Metadata (title/channel/duration) comes from the YouTube Data API v3 — get a
-free key at https://console.cloud.google.com/apis/credentials and export it
-as YOUTUBE_API_KEY.
-Claude summary is optional — set USE_CLAUDE=True and export ANTHROPIC_API_KEY.
+free key at https://console.cloud.google.com/apis/credentials and put it in
+.env (see env_setup.py) as YOUTUBE_API_KEY.
+Claude summary is optional — set USE_CLAUDE=True and put ANTHROPIC_API_KEY in .env.
 """
 
 import json
@@ -428,6 +428,11 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
         fm += [f"> [!{verdict_callout(verdict)}] Worth watching? {verdict}", ""]
     elif is_short:
         fm += ["> [!info] Short video — no worth-watching verdict needed.", ""]
+    if topic:
+        # Obsidian only draws a graph edge between notes that share a
+        # [[wikilink]] target, not a #tag — the tag stays for filtering,
+        # this line is what actually connects same-topic videos in the graph.
+        fm += [f"Topic: [[{topic.strip()}]]", ""]
     if summary:
         fm += ["## Summary", "", summary, ""]
     if books:

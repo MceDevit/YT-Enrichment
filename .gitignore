@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .DS_Store
 vault_path.txt
+.env
 mac-mini-setup.md
 linkedin-ibmi-post.md
 forum-post.md

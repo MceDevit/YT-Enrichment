@@ -15,6 +15,8 @@ import time
 
 import requests
 
+import env_setup  # noqa: F401 — loads ANTHROPIC_API_KEY / YOUTUBE_API_KEY from .env
+
 # Transient failures (timeouts, 429s, 5xx) get retried with these backoffs.
 # A long transcript reformat can genuinely take a couple of minutes, and a
 # single timeout used to silently drop the cleanup and keep the raw captions.

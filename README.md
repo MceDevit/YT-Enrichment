@@ -24,7 +24,7 @@ channel: "Brock Mesarich | AI for Non Techies"
 url: https://youtu.be/jbiMx17fEK0
 duration: 9:35
 date_watched: 2026-07-22
-tags: [youtube]
+tags: [youtube, topic/ai-tools]
 status: reviewed
 processed: true
 transcript_done: 2026-07-22 14:53
@@ -35,6 +35,8 @@ model_summary: claude-haiku-4-5-20251001
 > [!warning] Worth watching? Maybe — useful if you actively use the
 > feature being demoed, but the core insight is fully captured in
 > this summary.
+
+Topic: [[AI Tools]]
 
 ## Summary
 - ...focused bullet points, per your topic settings...
@@ -56,6 +58,9 @@ The verdict callout is color-coded so you can triage at a glance: **Yes**
 - **Per-topic focus** — define topics by keywords in `_youtube_settings.md`;
   each topic gets its own summary focus ("give me the exact prompts",
   "flag hype vs. reproducible how-to", "note chord voicings mentioned").
+  Every matched note gets both a `#topic/slug` tag (for filtering) and a
+  `[[Topic]]` wikilink in the body, so every video on that subject shows up
+  connected in Obsidian's graph view.
 - **The verdict** — a color-coded callout at the top of every note:
   green/orange/red for Yes/Maybe/No on whether it's worth watching in
   full. YouTube Shorts get a blue info callout instead — a 30-second
@@ -137,15 +142,23 @@ and (for summaries/verdicts) an [Anthropic API key](https://console.anthropic.co
 git clone https://github.com/MceDevit/YT-Enrichment.git
 cd YT-Enrichment
 brew install yt-dlp
-python3 -m pip install requests --break-system-packages
+python3 -m pip install requests python-dotenv --break-system-packages
 
 # point the scripts at your vault (gitignored, machine-specific)
 cp vault_path.txt.example vault_path.txt   # then edit: one line, your vault's full path
 
-# API keys — add to ~/.zshrc
-export YOUTUBE_API_KEY="..."             # Google Cloud Console → enable "YouTube Data API v3" → create key
-export ANTHROPIC_API_KEY="sk-ant-..."    # only needed if use_claude: yes
+# API keys — create a gitignored .env file in this folder (not ~/.zshrc:
+# that would leak them into every shell, including unrelated tools)
+cat > .env <<'EOF'
+YOUTUBE_API_KEY=...            # Google Cloud Console → enable "YouTube Data API v3" → create key
+ANTHROPIC_API_KEY=sk-ant-...   # only needed if use_claude: yes
+EOF
 ```
+
+`env_setup.py` loads `.env` via `python-dotenv` before anything reads those
+variables (imported by `claude_api.py` / `dashboard.py`) — no shell sourcing
+or `export` needed, and no risk of the keys ending up in every terminal
+session on the machine.
 
 Sanity-check the install before pointing it at a real video — the test
 suite needs no API keys, no vault, and no network:
@@ -226,17 +239,20 @@ manually instead.
 ```powershell
 git clone https://github.com/MceDevit/YT-Enrichment.git
 cd YT-Enrichment
-pip install requests yt-dlp
+pip install requests python-dotenv yt-dlp
 
 # point the scripts at your vault (gitignored, machine-specific)
 copy vault_path.txt.example vault_path.txt
 notepad vault_path.txt   # one line, your vault's full Windows path, e.g.
                           # C:\Users\yourname\YourVault
 
-# API keys — set as user environment variables (Settings > System > About >
-# Advanced system settings > Environment Variables), or per PowerShell session:
-setx YOUTUBE_API_KEY "..."
-setx ANTHROPIC_API_KEY "sk-ant-..."
+# API keys — create a gitignored .env file in this folder
+notepad .env
+```
+
+```
+YOUTUBE_API_KEY=...
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 Copy `_youtube_settings.md` from this repo **into your vault root** and
@@ -289,12 +305,12 @@ ssh -T yourmac-hostname
 `.command` scripts end with `read -p "Press Enter to close..."`, which
 assumes an interactive terminal — over SSH with no one there to press
 Enter, that just hangs forever. `Run_Enrich_Headless.sh` and
-`Run_Watch_Channels_Headless.sh` drop that pause and explicitly load
-your shell's environment (`PATH`, `YOUTUBE_API_KEY`,
-`ANTHROPIC_API_KEY`), since a non-interactive SSH session doesn't
-source `~/.zshrc` on its own. `Run_Review_Videos` has no headless
-twin — it opens a local review webpage and blocks forever serving it,
-so it only makes sense to run that one at the Mac itself.
+`Run_Watch_Channels_Headless.sh` drop that pause; API keys need no
+special handling since they live in `.env` and are loaded by the Python
+process itself (`env_setup.py`), not sourced from the shell.
+`Run_Review_Videos` has no headless twin — it opens a local review
+webpage and blocks forever serving it, so it only makes sense to run
+that one at the Mac itself.
 
 **4. Build the Shortcut.** In the Shortcuts app: add a **"Run Script Over
 SSH"** action, fill in the Mac's Tailscale hostname/IP, your username,
@@ -347,6 +363,7 @@ Shortcuts runs the script silently and shows nothing on screen.
 - `enrich_youtube_auto.py` — reads `_youtube_settings.md`, runs the pipeline with no prompts (what `Run_Enrich.command` calls)
 - `reformat_transcript.py` — transcript → readable prose (when `use_claude: yes`), with truncation/translation sanity checks
 - `claude_api.py` — shared Anthropic API call with retry/backoff, used by both the summary and the reformat step
+- `env_setup.py` — loads `YOUTUBE_API_KEY` / `ANTHROPIC_API_KEY` from a gitignored `.env` file (imported by `claude_api.py` / `dashboard.py`)
 - `watch_channels.py` / `review_videos.py` — channel watching engines
 - `dashboard.py` — read-only status screen (`python3 dashboard.py`, or `Run_Dashboard.command`)
 - `reprocess.py` — rebuild already-enriched notes: by name, `--url`, `--flagged`, or `--all`

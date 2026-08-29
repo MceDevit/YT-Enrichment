@@ -363,6 +363,14 @@ class TestBuildNote(unittest.TestCase):
         note = core.build_note(self.META, "t", "s")
         self.assertIn("tags: [youtube]", note)
 
+    def test_topic_adds_a_wikilink_for_graph_connections(self):
+        note = core.build_note(self.META, "t", "s", topic="Home Automation")
+        self.assertIn("Topic: [[Home Automation]]", note)
+
+    def test_no_topic_has_no_wikilink(self):
+        note = core.build_note(self.META, "t", "s")
+        self.assertNotIn("Topic: [[", note)
+
     def test_clean_note_is_reviewed_with_no_warning_block(self):
         note = core.build_note(self.META, "transcript", "summary", verdict="Yes — good")
         self.assertIn(f"status: {core.STATUS_DONE}", note)
