@@ -131,8 +131,12 @@ timeout used to silently drop a transcript cleanup and keep the raw captions.
 **`reprocess.py`** flips enriched notes back to `processed: false` and moves
 them to the vault root so the next run rebuilds them — by filename, `--url`,
 `--flagged` (i.e. `status: needs-attention`), or `--all`. Only `processed:`
-and optionally the transcript (`--refetch`) are touched, since `build_note()`
-regenerates the whole note anyway.
+is touched, since `build_note()` regenerates the whole note anyway. Whether
+the transcript itself gets refetched is decided by `enrich_youtube.py`'s
+`needs_fresh_transcript()`: a `transcript_done:` date plus `processed: false`
+means it was previously fully enriched and reset, so it's treated as new —
+fresh transcript, verdict, and summary — rather than reusing what's still in
+`## Transcript`.
 
 ### Key invariants
 

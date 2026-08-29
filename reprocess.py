@@ -13,15 +13,15 @@ does it in one command.
     python3 reprocess.py --url s7Nxb3N8iak    # by video id / URL fragment
     python3 reprocess.py --all                # everything in Reviewed/ (asks first)
 
-    --refetch   also drop the stored transcript so it's re-fetched from YouTube
-                (default: reuse it, which is faster and avoids re-hitting yt-dlp)
     --run       run enrich_youtube_auto.py immediately afterwards
     --list      show what would be reprocessed, change nothing
     --yes       skip the confirmation prompt
 
 The note itself is fully rebuilt by enrich_youtube.py, so old summaries,
-verdicts and warning callouts are replaced rather than accumulated — only the
-transcript is carried over (unless --refetch).
+verdicts and warning callouts are replaced rather than accumulated. If the
+note had a transcript_done: date (a transcript was actually fetched before),
+enrich_youtube.py's needs_fresh_transcript() re-fetches it fresh too rather
+than reusing whatever's still in ## Transcript — see enrich_youtube.py.
 """
 
 import argparse
@@ -35,7 +35,6 @@ import enrich_youtube as core
 
 PROCESSED_RE = re.compile(r"^processed:\s*true\s*$", re.MULTILINE)
 STATUS_RE = re.compile(r"^status:\s*(.+?)\s*$", re.MULTILINE)
-TRANSCRIPT_SECTION_RE = re.compile(r"^## Transcript\s*\n.*", re.MULTILINE | re.DOTALL)
 
 
 def candidate_notes():
@@ -66,16 +65,16 @@ def matches(note, args):
     return args.query.lower() in note.stem.lower()
 
 
-def unprocess(note, refetch=False):
+def unprocess(note):
     """Flip the note back to unprocessed and move it where collect_urls() looks.
 
-    Only `processed:` and (optionally) the transcript are touched — everything
-    else is rewritten from scratch by build_note() on the next run.
+    Only `processed:` is touched — everything else is rewritten from scratch
+    by build_note() on the next run (including the transcript, if
+    transcript_done: shows one was actually fetched before — see
+    enrich_youtube.py's needs_fresh_transcript()).
     """
     text = note.read_text(encoding="utf-8")
     text = PROCESSED_RE.sub("processed: false", text)
-    if refetch:
-        text = TRANSCRIPT_SECTION_RE.sub("", text).rstrip() + "\n"
 
     dest = core.INBOX / note.name
     dest.write_text(text, encoding="utf-8")
@@ -92,8 +91,6 @@ def main():
     p.add_argument("--flagged", action="store_true",
                    help=f"select notes with status: {core.STATUS_ATTENTION}")
     p.add_argument("--all", action="store_true", help="select every enriched note")
-    p.add_argument("--refetch", action="store_true",
-                   help="drop the stored transcript so it's fetched again")
     p.add_argument("--run", action="store_true",
                    help="run enrich_youtube_auto.py after queueing")
     p.add_argument("--list", action="store_true", help="show matches and exit")
@@ -108,8 +105,7 @@ def main():
         print("No matching enriched notes found.")
         return
 
-    print(f"{len(selected)} note(s) to reprocess"
-          f"{' (transcripts will be re-fetched)' if args.refetch else ''}:")
+    print(f"{len(selected)} note(s) to reprocess:")
     for note in selected:
         print(f"  • {note.name}")
 
@@ -124,7 +120,7 @@ def main():
             return
 
     for note in selected:
-        dest = unprocess(note, refetch=args.refetch)
+        dest = unprocess(note)
         print(f"  queued {dest.relative_to(core.VAULT)}")
 
     print(f"\n{len(selected)} note(s) queued in the vault root.")

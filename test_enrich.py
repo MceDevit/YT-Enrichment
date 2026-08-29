@@ -231,6 +231,28 @@ class TestExtractExistingTranscript(unittest.TestCase):
         self.assertEqual(core.extract_existing_transcript("---\nurl: x\n---\n"), "")
 
 
+class TestNeedsFreshTranscript(unittest.TestCase):
+    def test_reset_note_that_was_fully_enriched_needs_a_fresh_transcript(self):
+        note = "---\nprocessed: false\ntranscript_done: 2026-08-29 16:26\n---\n"
+        self.assertTrue(core.needs_fresh_transcript(note))
+
+    def test_web_clipper_import_is_unaffected(self):
+        # Never touched our pipeline before, so no transcript_done: at all —
+        # its baked-in transcript should still be reused.
+        note = "---\nsource: https://youtu.be/x\n---\n\n## Transcript\n\ntext\n"
+        self.assertFalse(core.needs_fresh_transcript(note))
+
+    def test_length_skipped_note_is_unaffected(self):
+        # Reset but never actually got a transcript (skipped for length), so
+        # there's nothing stale to force a refetch of.
+        note = "---\nprocessed: false\n---\n"
+        self.assertFalse(core.needs_fresh_transcript(note))
+
+    def test_still_processed_note_is_unaffected(self):
+        note = "---\nprocessed: true\ntranscript_done: 2026-08-29 16:26\n---\n"
+        self.assertFalse(core.needs_fresh_transcript(note))
+
+
 class TestAlreadyProcessed(unittest.TestCase):
     def test_detects_processed_flag(self):
         self.assertTrue(core.already_processed("---\nprocessed: true\n---\n"))
@@ -687,21 +709,16 @@ class TestReprocess(unittest.TestCase):
         self.assertIn("processed: false", text)
         self.assertFalse(core.already_processed(text))
 
-    def test_unprocess_keeps_the_transcript_by_default(self):
+    def test_unprocess_keeps_the_transcript_in_the_file(self):
+        # Whether that transcript actually gets reused is enrich_youtube.py's
+        # needs_fresh_transcript() call, not reprocess.py's concern.
         dest = reprocess.unprocess(self._write("Some Video.md"))
         self.assertIn("the transcript body", dest.read_text(encoding="utf-8"))
-
-    def test_refetch_drops_the_transcript_section(self):
-        dest = reprocess.unprocess(self._write("Some Video.md"), refetch=True)
-        text = dest.read_text(encoding="utf-8")
-        self.assertNotIn("the transcript body", text)
-        self.assertNotIn("## Transcript", text)
-        self.assertIn("url: https://youtu.be/abc123", text)  # still discoverable
 
     def test_requeued_note_still_carries_a_findable_url(self):
         # collect_urls() finds work by regex-matching the note body; losing the
         # URL here would strand the note in the vault root forever.
-        dest = reprocess.unprocess(self._write("Some Video.md"), refetch=True)
+        dest = reprocess.unprocess(self._write("Some Video.md"))
         self.assertTrue(core.YT_RE.search(dest.read_text(encoding="utf-8")))
 
     def test_candidate_notes_skips_underscore_files(self):

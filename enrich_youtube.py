@@ -437,6 +437,25 @@ def already_processed(text):
     return re.search(r"^processed:\s*true\s*$", text, re.MULTILINE) is not None
 
 
+PROCESSED_FALSE_RE = re.compile(r"^processed:\s*false\s*$", re.MULTILINE)
+TRANSCRIPT_DONE_RE = re.compile(r"^transcript_done:\s*\S", re.MULTILINE)
+
+
+def needs_fresh_transcript(text):
+    """True when a note was previously fully enriched (transcript_done: has
+    a date, meaning a transcript was actually fetched, not just skipped or
+    absent) and has since been explicitly reset (processed: false) — e.g.
+    via reprocess.py, or a human clearing the flag and moving it back to
+    Inbox. Such a note should be treated as new: fresh transcript, verdict,
+    and summary, not a reuse of whatever's still sitting in ## Transcript.
+
+    A genuinely new note (Web Clipper import, or a hand-added stub with just
+    a URL) never has transcript_done: at all, so it's unaffected — its
+    baked-in transcript (if any) is still reused as before.
+    """
+    return bool(PROCESSED_FALSE_RE.search(text) and TRANSCRIPT_DONE_RE.search(text))
+
+
 RATE_LIMIT_MARKER = "> [!warning] Transcript rate-limited (429) — will retry automatically next run"
 FRONTMATTER_RE = re.compile(r"^(---\n.*?\n---\n)", re.DOTALL)
 
@@ -569,7 +588,9 @@ def main(focus_getter=None, topic_getter=None):
 
             existing_transcript = ""
             if src is not None:
-                existing_transcript = extract_existing_transcript(src.read_text(encoding="utf-8"))
+                src_text = src.read_text(encoding="utf-8")
+                if not needs_fresh_transcript(src_text):
+                    existing_transcript = extract_existing_transcript(src_text)
 
             if existing_transcript:
                 if looks_raw(existing_transcript):
