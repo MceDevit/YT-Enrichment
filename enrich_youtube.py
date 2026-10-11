@@ -279,6 +279,13 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
         "'BOOK: ' (e.g. 'BOOK: Atomic Habits — James Clear', including the author if "
         "stated). If no books are mentioned, omit this entirely — don't write 'BOOK: none'.\n\n"
     )
+    ai_line = (
+        "Also judge whether this video itself looks AI-made (AI-generated voice/narration, "
+        "script, or visuals, e.g. synthetic text-to-speech, faceless AI-slop channel, or the "
+        "creator saying so). On its own line write 'AI_GENERATED: Yes — reason' or "
+        "'AI_GENERATED: Likely — reason' if there is real evidence in the transcript or title; "
+        "otherwise omit this line entirely. Merely being ABOUT AI does not count.\n\n"
+    )
     if is_short:
         # Shorts are already quick to watch, so a "worth watching in full?"
         # verdict is pointless — just summarize.
@@ -286,7 +293,7 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
             f'Summarize this YouTube Short titled "{title}" in 1-3 short, tight bullet points, '
             "capturing just the core idea or takeaway."
             + focus_line + language_line + SHORT_SUMMARY_INSTRUCTIONS + "\n\n"
-            + book_line +
+            + book_line + ai_line +
             "Transcript:\n\n" + transcript[:100_000]
         )
     else:
@@ -298,7 +305,7 @@ def claude_summary(title, transcript, focus=None, language=None, is_short=False)
             "If the video itself isn't worth watching but the bullets above already capture "
             "everything worth knowing, use 'VERDICT: Read — reason' instead of 'No' — that tells "
             "the reader to skip the video but still read the summary.\n\n"
-            + book_line +
+            + book_line + ai_line +
             "Transcript:\n\n" + transcript[:100_000]
         )
     try:
@@ -361,6 +368,19 @@ def extract_books(summary):
     return books, cleaned
 
 
+AI_RE = re.compile(r"^[\s>*•\-]*AI_GENERATED:\s*(.+?)\**\s*$", re.MULTILINE | re.IGNORECASE)
+
+
+def extract_ai_flag(summary):
+    """Pulls the 'AI_GENERATED: ...' line out of a summary. Returns (ai_note, summary_without_it);
+    ai_note is None when the model omitted the line (i.e. no sign the video is AI-made)."""
+    m = AI_RE.search(summary or "")
+    if not m:
+        return None, summary
+    cleaned = re.sub(r"\n{3,}", "\n\n", AI_RE.sub("", summary)).strip()
+    return m.group(1).strip(), cleaned
+
+
 def sanitize(name):
     name = re.sub(r'[\\/:*?"<>|#^\[\]]', "", name)
     return re.sub(r"\s+", " ", name).strip()[:120] or "video"
@@ -394,7 +414,7 @@ def verdict_callout(verdict):
 
 def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
                 reformatted=False, summarized=False, translated=False, transcript_done_at=None,
-                is_short=False, warnings=None, books=None, topic=None, api_cost=0.0):
+                is_short=False, warnings=None, books=None, topic=None, api_cost=0.0, ai_generated=None):
     tags = ["youtube"]
     tag = topic_tag(topic) if topic else None
     if tag:
@@ -432,6 +452,8 @@ def build_note(meta, transcript, summary, transcript_note=None, verdict=None,
         fm.append("> [!warning] Enrichment issues — this note may be incomplete")
         fm += [f"> - {w}" for w in warnings]
         fm.append("")
+    if ai_generated:
+        fm += [f"> [!bot] Made with AI? {ai_generated}", ""]
     if verdict:
         fm += [f"> [!{verdict_callout(verdict)}] Worth watching? {verdict}", ""]
     elif is_short:
@@ -680,10 +702,12 @@ def main(focus_getter=None, topic_getter=None):
             if summary and not verdict and not is_short:
                 warnings.append("no verdict line in the summary")
             books, summary = extract_books(summary) if summary else ([], summary)
+            ai_generated, summary = extract_ai_flag(summary) if summary else (None, summary)
             body = build_note(meta, transcript, summary, transcript_note=transcript_note, verdict=verdict,
                                reformatted=reformatted, summarized=summarized, translated=translated,
                                transcript_done_at=transcript_done_at, is_short=is_short,
-                               warnings=warnings, books=books, topic=topic, api_cost=api_cost)
+                               warnings=warnings, books=books, topic=topic, api_cost=api_cost,
+                               ai_generated=ai_generated)
 
             dest_dir = REVIEWED if MOVE_TO_REVIEWED else INBOX
             dest = dest_dir / f"{sanitize(meta['title'])}.md"

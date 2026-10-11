@@ -355,6 +355,18 @@ class TestBuildNote(unittest.TestCase):
     META = {"title": "A Video", "channel": "Chan", "channel_id": "UC123",
             "url": "https://youtu.be/abc", "duration": "10:00"}
 
+    def test_ai_flag_extracted_and_shown_above_summary(self):
+        flag, cleaned = core.extract_ai_flag("- a\n- b\nAI_GENERATED: Yes — synthetic TTS voice")
+        self.assertEqual(flag, "Yes — synthetic TTS voice")
+        self.assertNotIn("AI_GENERATED", cleaned)
+        note = core.build_note(self.META, "t", cleaned, ai_generated=flag)
+        self.assertIn("> [!bot] Made with AI? Yes — synthetic TTS voice", note)
+        self.assertLess(note.index("Made with AI"), note.index("## Summary"))
+
+    def test_ai_flag_absent_shows_nothing(self):
+        self.assertEqual(core.extract_ai_flag("- a"), (None, "- a"))
+        self.assertNotIn("Made with AI", core.build_note(self.META, "t", "s"))
+
     def test_topic_adds_a_nested_tag(self):
         note = core.build_note(self.META, "t", "s", topic="Home Automation")
         self.assertIn("tags: [youtube, topic/home-automation]", note)
