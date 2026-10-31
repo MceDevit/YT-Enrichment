@@ -150,6 +150,29 @@ class TranscriptRateLimited(Exception):
     """Raised when yt-dlp still hits a 429 after all retries are exhausted."""
 
 
+class TranscriptWrongScript(Exception):
+    """Raised when the fetched captions are in a different writing system than the
+    video's language (e.g. Arabic text for an English video) even after retrying
+    the original-language track."""
+
+
+LATIN_LANGS = {"en", "fr", "es", "de", "it", "pt", "nl"}
+
+
+def wrong_script(text, language):
+    """True when `text` is mostly non-Latin letters but `language` is a
+    Latin-script one. YouTube occasionally serves an auto-translated track
+    (seen: Arabic for English videos) in place of the requested `en` track;
+    detect_language() can't flag that since it has no Arabic stopwords."""
+    if not language or language.split("-")[0].lower() not in LATIN_LANGS:
+        return False
+    letters = [c for c in text if c.isalpha()]
+    if len(letters) < 50:
+        return False
+    latin = sum(c.isascii() or "\u00c0" <= c <= "\u024f" for c in letters)
+    return latin / len(letters) < 0.5
+
+
 def transcript_target_lang(language):
     """The transcript's desired *final* language — not what we ask yt-dlp
     for (fetch_transcript always requests the video's own native track; see
@@ -165,6 +188,25 @@ def transcript_target_lang(language):
 
 
 def fetch_transcript(url, language=None):
+    """Fetch captions, guarding against a wrong-script track.
+
+    If the result is in a different writing system than `language` (YouTube
+    sometimes returns a translated track for the plain `en` request), retry
+    once asking for the original-language track (`en-orig`). Raises
+    TranscriptWrongScript if that is still wrong.
+    """
+    text = _fetch_transcript(url, language)
+    if text and wrong_script(text, language):
+        base = language.split("-")[0]
+        print(f"  ! captions came back in the wrong script for a {base} video — "
+              f"retrying with the original track ({base}-orig)", file=sys.stderr)
+        text = _fetch_transcript(url, language, sub_langs=f"^{base}-orig$")
+        if text and wrong_script(text, language):
+            raise TranscriptWrongScript(url)
+    return text
+
+
+def _fetch_transcript(url, language=None, sub_langs=None):
     """Return plain-text transcript, or '' if no captions exist.
 
     `language` is the video's own default audio language (from the YouTube
@@ -192,7 +234,9 @@ def fetch_transcript(url, language=None):
     callers should leave the item untouched so it's retried on the next run,
     rather than finalizing a note with a permanently-missing transcript.
     """
-    if language:
+    if sub_langs:
+        pass
+    elif language:
         base_lang = language.split("-")[0]
         sub_langs = f"^{base_lang}$"
     else:
@@ -654,10 +698,15 @@ def main(focus_getter=None, topic_getter=None):
                 transcript_skipped_on_purpose = True
                 summary_language = meta.get("language")
             else:
-                transcript = fetch_transcript(url, language=meta.get("language"))
+                try:
+                    transcript = fetch_transcript(url, language=meta.get("language"))
+                except TranscriptWrongScript:
+                    transcript = ""
+                    warnings.append("captions came back in the wrong language/script — "
+                                    "re-run with reprocess.py --flagged")
                 fetched_fresh = True
                 summary_language = meta.get("language")  # updated below if translation succeeds
-                if not transcript:
+                if not transcript and not warnings:
                     warnings.append("no captions available for this video")
 
             if transcript:

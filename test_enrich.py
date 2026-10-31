@@ -351,6 +351,56 @@ class TestCheckReformat(unittest.TestCase):
         self.assertIsNone(rt.check_reformat(ENGLISH_TEXT, cleaned))
 
 
+class TestWrongScript(unittest.TestCase):
+    ARABIC = "صدق أو لا تصدق، الجميع الذين يحاولون كسب المال باستخدام الذكاء الاصطناعي " * 5
+    ENGLISH = "Believe it or not, everyone trying to make money with AI right now " * 5
+
+    def test_arabic_for_english_video_is_flagged(self):
+        self.assertTrue(core.wrong_script(self.ARABIC, "en-US"))
+
+    def test_english_for_english_video_is_fine(self):
+        self.assertFalse(core.wrong_script(self.ENGLISH, "en-US"))
+
+    def test_accented_french_is_fine(self):
+        self.assertFalse(core.wrong_script("Où êtes-vous allés é à ç ù " * 10, "fr"))
+
+    def test_native_arabic_video_is_not_flagged(self):
+        self.assertFalse(core.wrong_script(self.ARABIC, "ar"))
+
+    def test_unknown_language_or_short_text_not_flagged(self):
+        self.assertFalse(core.wrong_script(self.ARABIC, None))
+        self.assertFalse(core.wrong_script("مرحبا", "en"))
+
+
+class TestFetchTranscriptWrongScript(unittest.TestCase):
+    ARABIC = TestWrongScript.ARABIC
+    ENGLISH = TestWrongScript.ENGLISH
+
+    def _run(self, results):
+        calls = []
+        def fake(url, language=None, sub_langs=None):
+            calls.append(sub_langs)
+            return results[len(calls) - 1]
+        orig, core._fetch_transcript = core._fetch_transcript, fake
+        try:
+            return core.fetch_transcript("u", language="en-US"), calls
+        finally:
+            core._fetch_transcript = orig
+
+    def test_retries_with_orig_track_and_recovers(self):
+        text, calls = self._run([self.ARABIC, self.ENGLISH])
+        self.assertEqual(text, self.ENGLISH)
+        self.assertEqual(calls, [None, "^en-orig$"])
+
+    def test_raises_when_retry_is_still_wrong(self):
+        with self.assertRaises(core.TranscriptWrongScript):
+            self._run([self.ARABIC, self.ARABIC])
+
+    def test_good_first_fetch_makes_one_call(self):
+        text, calls = self._run([self.ENGLISH])
+        self.assertEqual(calls, [None])
+
+
 class TestBuildNote(unittest.TestCase):
     META = {"title": "A Video", "channel": "Chan", "channel_id": "UC123",
             "url": "https://youtu.be/abc", "duration": "10:00"}
